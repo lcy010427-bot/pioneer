@@ -10,4 +10,5 @@ USER 10001:10001
 EXPOSE 8765
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/healthz', timeout=3).read()"
+COPY --from=caddy:2.10.2-alpine /usr/bin/caddy /usr/bin/caddy
 CMD ["python", "-m", "pioneer.deployment"]
