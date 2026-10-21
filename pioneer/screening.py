@@ -25,6 +25,28 @@ GENERIC = {
     'alkali metal cation','fluoroalkane','chemical element','organic compound','inorganic compound',
     'peptide','methyl','fatty acid','polyunsaturated fatty acid',
 }
+SIGNAL_PATTERNS = {
+    'environment': re.compile(r'\b(?:detect(?:ed|ion|able)?|occurrence|quantif(?:ied|ication)|measured concentration|'
+        r'detection frequenc\w*|monitoring|environmental sample|wastewater|effluent|sewage|surface water|river|'
+        r'sediment|soil|air|dust|biota|wildlife|placenta|cord blood|remote (?:region|area|site))\b',re.I),
+    'hazard': re.compile(r'\b(?:toxicity|toxicological|ecotoxic\w*|endocrine|estrogen|androgen|thyroid|developmental|'
+        r'neurotox\w*|immunotox\w*|reproduct\w*|genotox\w*|carcinogen\w*|bioassay|ToxCast|Tox21)\b',re.I),
+    'exposure': re.compile(r'\b(?:exposure|biomonitoring|product use|consumer product|industrial use|production|'
+        r'manufactur\w*|emission|release|polymer additive|tire|tyre|electronic|battery)\b',re.I),
+    'regulatory': re.compile(r'\b(?:regulat\w*|restriction|watch list|candidate list|SVHC|ECHA|REACH|EPA|'
+        r'priority substance|risk management|K-REACH)\b',re.I),
+    'novel_context': re.compile(r'\b(?:first report|first detect\w*|newly detect\w*|novel pollutant|replacement chemical|'
+        r'transformation product|metabolite|unintentionally added substance|NIAS|suspect screening|non-target screening|'
+        r'polymer additive|tire|tyre|electronic|battery)\b',re.I),
+    'gap': re.compile(r'\b(?:data gap|knowledge gap|limited (?:\w+ ){0,2}(?:data|evidence|information|studies)|poorly understood|'
+        r'remains? unknown|further (?:study|studies|research)|understudied|not well understood)\b',re.I),
+}
+GAP_DIMENSIONS = {
+    '만성 영향': re.compile(r'\bchronic\b',re.I), '저농도 영향': re.compile(r'\blow[- ]dose\b|low concentration',re.I),
+    '발달독성': re.compile(r'\bdevelopmental|prenatal|embryo',re.I),
+    '성차': re.compile(r'\bsex[- ]specific|sex differences?|male and female',re.I),
+    '혼합물': re.compile(r'\bmixture|combined exposure|co-exposure',re.I),
+}
 
 
 def init_screening(path):
@@ -209,6 +231,52 @@ def _buckets(mentions,start,end,unit):
     return out
 
 
+def _multi_signals(papers,old_keys,recent_keys,baseline,recent,delta,percent):
+    records={name:set() for name in SIGNAL_PATTERNS};examples={name:[] for name in SIGNAL_PATTERNS}
+    dimensions=set();media=set()
+    for paper in papers:
+        text=(paper.get('title','')+' '+paper.get('abstract','')).strip();key=paper['record_key']
+        for name,pattern in SIGNAL_PATTERNS.items():
+            match=pattern.search(text)
+            if match:
+                records[name].add(key)
+                if len(examples[name])<3:examples[name].append(dict(record_key=key,date=paper.get('date'),title=paper.get('title'),matched=match.group()))
+        for label,pattern in GAP_DIMENSIONS.items():
+            if pattern.search(text):dimensions.add(label)
+        for label,pattern in analysis.RULES['medium'].items():
+            if re.search(pattern,text,re.I):media.add(label)
+    recent_counts={name:len(keys&recent_keys) for name,keys in records.items()}
+    baseline_counts={name:len(keys&old_keys) for name,keys in records.items()}
+    novelty=min(100,(65 if baseline==0 and recent>=3 else min(55,max(0,delta)*7))+
+        min(25,recent_counts['novel_context']*8)+(10 if percent is not None and percent>=100 else 0))
+    env=min(100,recent_counts['environment']*8+len(media)*9+
+        (20 if recent_counts['environment'] and not baseline_counts['environment'] else 0))
+    hazard=min(100,recent_counts['hazard']*10+sum(8 for label,pattern in analysis.RULES['endpoint'].items()
+        if any(re.search(pattern,(p.get('title','')+' '+p.get('abstract','')),re.I) for p in papers if p['record_key'] in recent_keys)))
+    exposure=min(100,recent_counts['exposure']*10)
+    regulatory=min(100,recent_counts['regulatory']*25)
+    gate=env>=30 or exposure>=30
+    gap=min(100,recent_counts['gap']*20) if gate else 0
+    components=dict(N=novelty,E=env,H=hazard,X=exposure,R=regulatory,G=gap)
+    score=round(.20*novelty+.20*env+.20*hazard+.15*exposure+.15*regulatory+.10*gap,1)
+    types=[]
+    if baseline==0 and recent>=3:types.append('new_mention')
+    elif recent>=5 and delta>=3 and percent is not None and percent>=50:types.append('publication_growth')
+    if recent_counts['environment'] and (not baseline_counts['environment'] or recent_counts['environment']>baseline_counts['environment']):types.append('environmental_detection')
+    if recent_counts['hazard']:types.append('hazard_signal')
+    if recent_counts['regulatory']:types.append('regulatory_attention')
+    missing=[name for name in GAP_DIMENSIONS if name not in dimensions]
+    return dict(priority_score=score,components=components,signal_types=types,
+        signal_counts={name:dict(baseline=baseline_counts[name],recent=recent_counts[name]) for name in records},
+        signal_examples=examples,environmental_media=sorted(media),gap_gate=gate,
+        gap_questions=missing if hazard else [],evidence_level='제목·초록 키워드 신호 · 사람 미검토',
+        source_coverage={
+            'literature':'Europe PMC 수집',
+            'environment':'문헌 내 검출·매질 언급만 확인 · NORMAN 미연결',
+            'hazard':'문헌 내 독성 endpoint 언급만 확인 · CompTox 미연결',
+            'regulatory':'문헌 내 규제 키워드만 확인 · 공식 규제 목록 미연결'})
+
+
 def view(path,params):
     start,end=params.get('start'),params.get('end');a,b,old_end,new_start=_window(start,end)
     unit=params.get('unit','month')
@@ -224,6 +292,7 @@ def view(path,params):
         rows=[]
         if chosen:
             candidates=list(db.execute('SELECT * FROM screening_candidates WHERE run_id=?',(chosen['id'],)))
+            documents={p['record_key']:p for p in json.loads(chosen['documents'] or '[]')}
             identified={re.sub(r'[^a-z0-9]','',r['name'].lower()) for r in candidates if r['identifier']}
             for row in candidates:
                 normalized=re.sub(r'[^a-z0-9]','',row['name'].lower())
@@ -241,10 +310,11 @@ def view(path,params):
                 evidence=[];seen=set()
                 for m in sorted(mentions,key=lambda x:x.get('date') or '',reverse=True):
                     if m['record_key'] not in seen:seen.add(m['record_key']);evidence.append(m)
+                signal_data=_multi_signals([documents[k] for k in total if k in documents],old,recent,len(old),len(recent),delta,percent)
                 rows.append(dict(id=row['candidate_id'],name=row['name'],identifier=row['identifier'],baseline=len(old),
                     recent=len(recent),delta=delta,percent=percent,total=len(total),status=status,
-                    buckets=_buckets(mentions,start,end,unit),evidence=evidence[:8]))
-    rows.sort(key=lambda r:(-r['delta'],-r['recent'],r['name'].lower()))
+                    buckets=_buckets(mentions,start,end,unit),evidence=evidence[:8],**signal_data))
+    rows.sort(key=lambda r:(-r['priority_score'],-r['delta'],-r['recent'],r['name'].lower()))
     visible=rows[:300]
     visible_ids={row['id'] for row in visible}
     visible.extend(row for row in rows if row['id'] in saved_ids and row['id'] not in visible_ids)
@@ -253,11 +323,49 @@ def view(path,params):
         return {k:run[k] for k in ('id','query','start_date','end_date','started_at','finished_at','status',
             'baseline_total','baseline_fetched','recent_total','recent_fetched','annotated','error','rules_version')}
     return dict(run=summary(chosen),latest_run=summary(latest),rows=visible,total_candidates=len(rows),
-        growing=sum(r['status'] in ('growing','early') for r in rows),start=start,end=end,unit=unit,
+        growing=sum(bool(r['signal_types']) for r in rows),start=start,end=end,unit=unit,
         exact_scope=bool(exact),rules_version=VERSION,
         scope='선택 기간의 환경·신흥오염물질 문헌에서 Europe PMC 화학물질 주석과 명칭 패턴으로 찾은 후보입니다.',
         limitations=['미리 정한 물질 목록을 사용하지 않음','검색식 밖 문헌·주석이 없는 물질은 누락 가능',
             '문헌 언급 증가는 위해성·사용량·환경농도 증가가 아님','부분 수집이면 동일 크기 표본의 기술적 비교'])
+
+
+def profiles(path,params):
+    ids=[x for x in str(params.get('ids','')).split(',')[:50] if x]
+    if not ids:return []
+    output=[]
+    with connect(path) as db:
+        for cid in ids:
+            row=db.execute('''SELECT c.*,r.query,r.start_date,r.end_date,r.started_at,r.finished_at,r.status,
+                r.baseline_total,r.baseline_fetched,r.recent_total,r.recent_fetched,r.documents,r.annotated,r.rules_version
+                FROM screening_candidates c JOIN screening_runs r ON r.id=c.run_id
+                WHERE c.candidate_id=? AND r.status IN ('complete','partial') ORDER BY r.id DESC LIMIT 1''',(cid,)).fetchone()
+            if not row:continue
+            data=json.loads(row['data']);mentions=data['mentions'];keys={m['record_key'] for m in mentions}
+            papers=[]
+            for p in json.loads(row['documents'] or '[]'):
+                if p['record_key'] not in keys:continue
+                p=dict(p);p['pub_types']=p.get('pub_types') if isinstance(p.get('pub_types'),list) else json.loads(p.get('pub_types') or '[]')
+                p.update(review={},document_flags=[t for t in p['pub_types'] if re.search('review|preprint|retract|correct|errat',t,re.I)],fulltext_available=False,fulltext_license=None)
+                papers.append(p)
+            run_id=-int(row['run_id']);run=dict(id=run_id,query=row['query'],source='Europe PMC 전체 스크리닝',
+                start_year=int(row['start_date'][:4]),end_year=int(row['end_date'][:4]),started_at=row['started_at'],
+                finished_at=row['finished_at'],status=row['status'],source_total=(row['baseline_total'] or 0)+(row['recent_total'] or 0),
+                fetched=(row['baseline_fetched'] or 0)+(row['recent_fetched'] or 0),unique_count=len(papers),
+                query_version=row['rules_version'],error=None)
+            chemical=dict(id='screen:'+cid,name=row['name'],terms=[row['name']],run=run,latest_attempt=run,papers=papers,trend=[],comparison=None,
+                identity=None,derived_from_screening=True,screen_candidate_id=cid)
+            for year in range(run['start_year'],run['end_year']+1):
+                chemical['trend'].append(dict(year=year,count=sum(p.get('year')==year for p in papers),incomplete_year=False))
+            evidence=[]
+            for paper in papers:evidence+=analysis.extract(paper,run_id)
+            for e in evidence:e.update(review={},paper_review={})
+            chemical['evidence']=evidence;chemical['map']=analysis.evidence_map(papers,evidence)
+            chemical['signals']=analysis.signals(chemical);chemical['questions']=analysis.questions(chemical,evidence)
+            for q in chemical['questions']:
+                q.update(review={},followups=[],followup_query=f'TITLE_ABS:"{row["name"]}" AND TITLE_ABS:"{q["endpoint"]}"')
+            output.append(chemical)
+    return output
 
 
 def meta(path):

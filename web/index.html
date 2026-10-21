@@ -1,26 +1,32 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="환경화학 문헌에서 최근 관심이 증가한 물질을 찾는 PIONEER Hot Chemical Monitor">
-<title>PIONEER · Hot Chemical Monitor</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/style.css"></head>
-<body class="screen-body">
-<header><div class="brand"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">PIONEER</span></div><p class="header-caption">Hot Chemical Monitor<br>문헌 기반 환경화학 감시망</p></header>
-<main class="screen-main">
- <section class="hero screen-hero"><div><h1>요즘 연구가 늘어난<br><span>화학물질은 무엇일까?</span></h1><p class="intro">정해진 물질 목록 없이 환경·신흥오염물질 문헌에서 화학물질을 찾고, 선택 기간의 전반과 후반을 비교합니다.</p></div><div class="radar-art" aria-hidden="true"><i></i><i></i><i></i><b></b></div></section>
- <div id="site-access" class="mode" role="status">배포 정보를 확인하는 중입니다.</div>
- <section class="panel screen-controls"><div class="panel-heading"><div><h2>문헌 관심 증가 감시</h2><p class="muted">5년·1년·최근 3개월 또는 직접 정한 기간을 같은 일수의 전·후반으로 나눕니다.</p></div><button id="screen-refresh">현재 기간 다시 스크리닝</button></div>
-  <div class="period-presets" role="group" aria-label="조회 기간"><button data-period="5y">5년간</button><button data-period="1y" aria-pressed="true">1년간</button><button data-period="1q">1분기 간</button></div>
-  <form id="screen-form" class="screen-form"><label>시작일<input id="screen-start" type="date" required></label><label>종료일<input id="screen-end" type="date" required></label><label>선그래프 단위<select id="screen-unit"><option value="quarter">분기별</option><option value="month" selected>월별</option><option value="week">주별</option></select></label><button type="submit" class="quiet">기간 적용</button></form>
-  <p id="screen-message" class="muted" role="status"></p>
- </section>
- <section id="screen-summary" class="radar-summary" aria-live="polite"></section>
- <section class="panel saved-panel" aria-labelledby="saved-title">
-  <div class="panel-heading"><div><h2 id="saved-title">내 레이더</h2><p class="muted">전체 감시에서 발견한 물질을 저장하고 같은 기간의 추이를 비교합니다. 목록은 이 브라우저에만 저장됩니다.</p></div><button id="saved-clear" class="quiet" type="button">전체 비우기</button></div>
-  <div id="saved-list" class="saved-list" aria-live="polite"></div>
-  <div id="saved-compare" class="saved-compare" aria-live="polite"></div>
- </section>
- <section class="panel screen-results"><div class="screen-toolbar"><label>발견된 물질 검색<input id="screen-search" type="search" placeholder="물질명 또는 ChEBI ID"></label><p class="muted">증가량이 큰 순서 · 물질별 논문 중복 제거</p></div><div id="screen-table" aria-live="polite">자료를 불러오는 중입니다.</div></section>
- <details class="panel screen-method"><summary>이 감시망이 찾는 범위와 해석 방법</summary><p id="screen-scope"></p><ul id="screen-limitations"></ul><p class="muted">문헌 주석은 자동 추출 결과이므로 명칭·식별 오류가 있을 수 있습니다. 결과는 후보 탐색용이며 위해성·규제 우선순위가 아닙니다.</p></details>
+<html lang="ko">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PIONEER · Emerging Chemical Radar</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css"><script src="/timeline.js" defer></script><script src="/app.js" defer></script><script src="/research.js" defer></script><script src="/radar.js" defer></script></head>
+<body>
+<header>
+<a class="brand" href="/" aria-label="PIONEER 홈"><svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16"/><circle cx="20" cy="20" r="10"/><circle cx="20" cy="20" r="4"/><path d="M20 4v16l11-11"/><circle class="radar-dot" cx="29" cy="13" r="3"/></svg><span class="brand-name">PIONEER</span></a>
+<span class="header-caption">Emerging Chemical Radar</span><nav class="main-nav" aria-label="주요 화면"><button data-main-view="radar">Hot Radar</button><button data-main-view="detail">물질 분석</button></nav><span class="edition">연구 워크스페이스</span>
+</header>
+<main>
+<section class="hero" aria-labelledby="hero-title"><div class="hero-copy"><h1 id="hero-title">전체에서 발견하고,<br><span>선택한 물질은 깊게.</span></h1><p class="intro">Hot Radar로 후보를 찾고 내 보관함의 물질을 기존 분석 워크스페이스에서 검토합니다.</p></div><div class="radar-art" aria-hidden="true"><div class="radar-sweep"></div><i class="radar-blip blip-one"></i><i class="radar-blip blip-two"></i><i class="radar-blip blip-three"></i></div></section>
+<div id="site-access" role="status" hidden></div>
+<div id="mode" role="status"></div>
+<section id="hot-radar" aria-label="Hot chemical 탐색"></section><div id="detail-view"><section class="workspace" id="workspace">
+<aside><div class="section-label">분석 대상·내 보관함 <span id="chemical-count"></span></div><div id="watchlist"></div><p class="aside-note">기존 추적 물질과 Hot Radar에서 저장한 물질입니다. 저장 후보에는 전체 스크리닝 문헌 기반의 기존 분석을 적용합니다.</p><button id="methods-button" class="quiet" aria-expanded="false" aria-controls="methods">분석 범위와 한계 ↗</button></aside>
+<div class="detail">
+<div class="detail-heading"><div><h2 id="chemical-name">불러오는 중</h2><div id="aliases" class="muted"></div></div><a class="button quiet" id="export" href="/api/export" download="pioneer-snapshot.json">스냅샷 내보내기 ↓</a></div>
+<section class="period-controls" aria-label="추이 조회 기간"><div class="panel-heading"><div><h3>추이·문헌 조회 기간</h3><p class="muted">기준일까지의 최근 기간입니다. 1분기는 최근 3개월이며, 최초 기준일은 저장 자료의 최근 검색 종료일입니다. 외부 수집 없이 조회합니다.</p></div><div class="period-presets" role="group" aria-label="최근 기간"><button type="button" data-period="5y">5년간</button><button type="button" data-period="1y">1년간</button><button type="button" data-period="1q">1분기 간</button></div></div><form id="period-form"><label>시작일<input id="period-start" type="date" min="1900-01-01" required></label><label>기준일·종료일<input id="period-end" type="date" min="1900-01-01" required></label><label>집계 단위<select id="period-unit"><option value="quarter">분기별</option><option value="month">월별</option><option value="week">주별</option></select></label><button type="submit" class="quiet">기간 적용</button></form><p id="period-caption" class="muted"></p><p id="period-error" class="error" role="status"></p></section><div id="metrics" class="metrics"></div>
+<nav class="tabs" aria-label="연구 작업"><button data-tab="observe" class="active">추이·문헌</button><button data-tab="context">맥락·근거</button><button data-tab="questions">공백 검토</button><button data-tab="compare">물질 비교</button><button data-tab="candidates">후보 검토함</button><button data-tab="audit">기준·기록</button></nav>
+<p id="action-message" role="status"></p>
+<div id="tab-observe" class="tab-content">
+<section class="panel"><div class="panel-heading"><div><h3>시간에 따른 문헌 수</h3><p class="muted">X축은 출판 시점, Y축은 해당 구간의 문헌 수입니다. 점을 선택하면 포함된 논문을 확인할 수 있습니다.</p></div><span id="snapshot-status" class="pill"></span></div><p class="muted">실선·채운 점: 구간 수집 완료 / 점선·빈 점: 일부 기간 또는 일부 자료만 집계</p><div id="chart" class="chart" aria-label="시간에 따른 문헌 수 선그래프"></div><div id="chart-inspect" class="chart-inspect" role="status"></div><p id="chart-note" class="muted"></p></section>
+<section class="panel"><div class="panel-heading"><div><h3>근거 문헌 <span id="paper-count"></span></h3><p class="muted">검색 결과를 직접 검토하세요. 물질의 직접 근거 여부는 미검토입니다.</p></div><button id="clear-year" class="quiet" hidden>선택 구간 해제</button></div><label class="search-label" for="search">수집된 제목·초록에서 찾기</label><input id="search" type="search" placeholder="제목 또는 초록 검색"><div id="paper-facets" class="filter-row"></div><div id="papers" aria-live="polite"></div><button id="more" class="quiet" hidden>더 보기</button></section>
+<section id="collection" class="panel"><div class="panel-heading"><div><h3>수동 갱신</h3><p class="muted">Europe PMC에 선택 물질의 검색 요청을 보냅니다. 결과와 실행 이력을 로컬 DB에 저장합니다.</p></div></div><form id="collect-form"><label>시작 연도<input id="start-year" type="number" min="1900" required></label><label>종료 연도<input id="end-year" type="number" min="1900" required></label><button type="submit" id="collect-button">이 물질 수집</button></form><p class="muted">한 번에 최대 10페이지·1,000개 원본 레코드. 초과하면 부분 수집으로 표시하며 마지막 완전 수집본을 유지합니다.</p><p id="collect-message" role="status"></p></section>
+<details class="panel"><summary>검색식·스냅샷·최근 수집 이력</summary><div id="provenance"></div></details>
+</div><div id="tab-context" class="tab-content" hidden></div><div id="tab-questions" class="tab-content" hidden></div><div id="tab-compare" class="tab-content" hidden></div><div id="tab-candidates" class="tab-content" hidden></div><div id="tab-audit" class="tab-content" hidden></div>
+</div></section>
+<section id="methods" class="panel" hidden><h3>이 버전에서 알 수 있는 것과 없는 것</h3><div class="method-grid"><div><h4>확인 가능한 관찰</h4><p>동일 검색식·수집 시점의 기간별 문헌 수입니다. 각 점에서 집계에 포함된 문헌을 확인할 수 있습니다. DOI 또는 자료원 ID로 중복을 제거합니다.</p></div><div><h4>잠정적인 운영 선택</h4><p>초기 관심 목록·동의어·기본 기간은 시연을 위한 설계 선택입니다. 체계적 검색이나 검증된 hot 판정 기준이 아닙니다. HFPO-DA 검색에서 GenX 단독어는 제외합니다.</p></div><div><h4>해석의 경계</h4><p>올해는 미완료 연도로 구분하며 증가 비교에서 제외합니다. 문헌 수는 독립 연구 수·노출량·위해성·통계적 유의성이 아닙니다. 논문 부재를 연구공백으로 확정하지 않습니다.</p></div><div><h4>분석의 상태</h4><p>맥락 분류와 관계는 근거 문장의 키워드 언급 후보입니다. 후보·공백 질문·판정 기준은 잠정이며, 외부 DB의 단일 매핑도 원문 물질 식별을 대체하지 않습니다. 전문가 평가·정확도·실제 효용은 아직 검증하지 않았습니다.</p></div></div></section>
+</div><footer>관찰 → 근거 확인 → 사람의 검토 <span>PIONEER · 연구용 · 잠정 지표</span></footer>
 </main>
-<dialog id="screen-dialog"><div class="dialog-head"><div><p class="eyebrow">물질 상세</p><h2 id="dialog-title"></h2></div><div class="dialog-actions"><button id="dialog-save" type="button">내 레이더에 저장</button><button id="dialog-close" class="quiet" aria-label="닫기">닫기</button></div></div><div id="dialog-body"></div></dialog>
-<footer>Europe PMC 문헌·화학물질 주석 기반 · 검색 범위와 수집량을 결과에 함께 표시합니다.</footer>
-<script src="/screen.js"></script></body></html>
+<dialog id="review-dialog"><form id="review-form"><h3>검토 기록</h3><p id="review-target" class="muted"></p><p class="muted">사용자가 입력한 판단과 사유를 저장합니다. ‘채택’은 이 검토 대상을 유지한다는 뜻이며 과학적 사실·연구공백 확정이 아닙니다.</p><label>검토자 이름<input id="review-actor" required minlength="2" maxlength="100" autocomplete="name"></label><label>판정<select id="review-status"><option value="uncertain">보류·추가 확인</option><option value="accepted">검토 대상 채택</option><option value="rejected">제외·오분류</option><option value="followup_complete">보완 검색 확인 완료</option></select></label><label>판단 사유·근거·반대 결과<textarea id="review-reason" required minlength="2" maxlength="2000" rows="5"></textarea></label><div class="dialog-actions"><button type="button" id="review-cancel" class="quiet">취소</button><button type="submit">기록 저장</button></div><p id="review-error" role="status"></p></form></dialog>
+<dialog id="radar-dialog" aria-labelledby="radar-dialog-title"><div class="radar-dialog-heading"><h2 id="radar-dialog-title"></h2><button id="radar-dialog-close" class="quiet" aria-label="후보 상세 닫기">닫기</button></div><div id="radar-dialog-body"></div></dialog></body></html>
+

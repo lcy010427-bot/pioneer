@@ -7,6 +7,7 @@ const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const statusLabel = s => ({complete:'완전 수집',partial:'부분 수집',failed:'수집 실패',running:'진행 중'}[s] || '미수집');
 const metric = (label,value,note) => `<div class="metric"><div class="label">${esc(label)}</div><strong>${esc(value)}</strong><small>${esc(note)}</small></div>`;
+function savedScreenIds(){try{return JSON.parse(localStorage.getItem('pioneer-analysis-shelf-v1')||'[]').map(x=>x.id).filter(Boolean)}catch(_){return []}}
 function papers() {
   const c = state.chemicals.find(c => c.id === selected);
   const term = $('search').value.trim().toLowerCase();
@@ -86,14 +87,14 @@ function render() {
   $('mode').textContent = demo ? '합성 데모 모드 — 모든 문헌·건수는 기능 검증용 예시입니다. 실제 연구 결과가 아니며 외부 수집은 비활성화되어 있습니다.' : '실자료 모드 — 지정 목록의 제목·초록 검색 결과입니다. 검색 일치가 해당 물질의 직접 근거를 뜻하지 않습니다. 과학적 판정·위해성 순위는 제공하지 않습니다.';
   if(state.validation_copy)$('mode').textContent='검증용 복제 DB — 여기의 자동화 검토 기록은 실제 사람 평가가 아닙니다. '+$('mode').textContent;
   $('chemical-count').textContent = state.chemicals.length;
-  $('watchlist').innerHTML = state.chemicals.map(x=>`<button class="watch${x.id===selected?' active':''}" data-chemical="${esc(x.id)}" aria-pressed="${x.id===selected}">${esc(x.name)}<small>${periodBadge(x)}</small></button>`).join('');
+  $('watchlist').innerHTML = state.chemicals.map(x=>`<button class="watch${x.id===selected?' active':''}" data-chemical="${esc(x.id)}" aria-pressed="${x.id===selected}">${esc(x.name)}${x.derived_from_screening?'<span class="shelf-origin">Hot Radar 저장</span>':''}<small>${periodBadge(x)}</small></button>`).join('');
   $('watchlist').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{selected=b.dataset.chemical;pointFilter=null;limit=15;if(typeof facetFilters!=='undefined')facetFilters={};$('search').value='';render();}));
   $('chemical-name').textContent = c.name;
   $('aliases').textContent = `검색 동의어: ${c.terms.join(' / ')} · 식별자 검증 미실시`;
   const temporal=time.series(c,periodRange);
   $('metrics').innerHTML=metric('선택 기간 문헌 수',temporal.bins.some(b=>b.count!==null)?`${temporal.count}건`:'—',temporal.fully_covered?'출판일 확인 문헌 · 독립 연구 수 아님':'선택 기간 자료 부족 · 저장 범위 확인 필요')+metric('조회 기간',periodLabel(),`${periodRange.start} ~ ${periodRange.end}`)+metric('분석 상태','사람 미검토','판정 임계값·중요성·연구공백 미확정');
   $('snapshot-status').textContent=c.run?statusLabel(c.run.status):'미수집';
-  $('collection').hidden = demo;
+  $('collection').hidden = demo||c.derived_from_screening;
   $('collect-button').disabled = busy;
   $('provenance').innerHTML = c.run ? `<p>출처: ${esc(c.run.source)} · 쿼리 버전: ${esc(c.run.query_version)}</p><pre>${esc(c.run.query)}</pre><p>수집 시작: ${esc(c.run.started_at)}<br>완료: ${esc(c.run.finished_at)}<br>자료원 검색 ${c.run.source_total}건 / 수신 ${c.run.fetched}건 / 중복 제거 ${c.run.unique_count}건</p><p>날짜: FIRST_PDATE 검색 / firstPublicationDate 집계, 미제공 시 pubYear 대체. 언어·문서유형 제한 없음. 리뷰·preprint가 포함될 수 있으며 버전·동일 연구 연결은 미실시.</p>${attempt(c)}` : `<p>선택된 스냅샷 없음</p>${attempt(c)}`;
   chart();papers();
@@ -101,7 +102,7 @@ function render() {
   if(typeof renderHotRadar==='function')renderHotRadar();
 }
 function attempt(c){const a=c.latest_attempt;return a?`<p>최근 시도: ${esc(a.started_at)} · ${esc(statusLabel(a.status))} · run #${a.id}</p>${a.error?`<pre class="error">${esc(a.error)}</pre>`:''}${c.run&&a.id!==c.run.id?'<p class="error">최근 시도와 표시 중인 스냅샷이 다릅니다. 마지막 완전 수집본을 표시합니다.</p>':''}`:'<p>수집 이력 없음</p>';}
-async function load(forceResearch=false){await loadSiteConfig();const detailed=forceResearch||window.pioneerDetailLoaded||new URLSearchParams(location.search).get('view')==='detail';const res=await fetch(detailed?'/api/research':'/api/state');if(!res.ok)throw Error('상태 조회 실패');state=await res.json();selected ||= state.chemicals[0].id;render();}
+async function load(forceResearch=false){await loadSiteConfig();const detailed=forceResearch||window.pioneerDetailLoaded||new URLSearchParams(location.search).get('view')==='detail';const res=await fetch(detailed?'/api/research':'/api/state');if(!res.ok)throw Error('상태 조회 실패');state=await res.json();const ids=savedScreenIds();if(ids.length){const pr=await fetch('/api/screen/profiles?'+new URLSearchParams({ids:ids.join(',')}));if(pr.ok){const profiles=await pr.json();state.chemicals.push(...profiles.filter(p=>!state.chemicals.some(c=>c.id===p.id)));}}if(!state.chemicals.some(c=>c.id===selected))selected=state.chemicals[0]?.id;if(!selected){$('mode').textContent='물질 분석 대상이 없습니다. Hot Radar에서 후보를 내 보관함에 추가하세요.';return;}render();}
 function periodBadge(c){const s=time.series(c,periodRange);return s.bins.some(b=>b.count!==null)?`${s.count}건 · ${s.fully_covered?'기간 수집됨':'일부 기간 미수집'}`:'선택 기간 미수집';}
 function applyPeriod(start,end,unit,kind){
  try{time.validate(start,end,unit);periodRange={start,end,unit};periodKind=kind;pointFilter=null;limit=15;$('period-error').textContent='';render();}

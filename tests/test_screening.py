@@ -39,6 +39,20 @@ class ScreeningTests(unittest.TestCase):
         saved=screening.view(self.path,{'start':'2025-01-01','end':'2025-12-31','unit':'month',
             'search':'no matching name','ids':row['id']})
         self.assertEqual(saved['rows'][0]['id'],row['id'])
+        profiles=screening.profiles(self.path,{'ids':row['id']})
+        self.assertEqual(profiles[0]['id'],'screen:'+row['id'])
+        self.assertTrue(profiles[0]['derived_from_screening'])
+
+    def test_multi_signal_score_separates_detection_hazard_and_gap(self):
+        documents=[dict(record_key='MED:1',title='First detection in river water',
+            abstract='Measured concentrations show developmental toxicity; limited chronic data and regulatory attention.')]
+        result=screening._multi_signals(documents,set(),{'MED:1'},0,3,3,None)
+        self.assertIn('environmental_detection',result['signal_types'])
+        self.assertIn('hazard_signal',result['signal_types'])
+        self.assertTrue(result['gap_gate'])
+        self.assertGreater(result['components']['E'],0)
+        self.assertGreater(result['components']['H'],0)
+        self.assertGreater(result['components']['G'],0)
 
     def test_invalid_period_is_rejected(self):
         with self.assertRaises(ValueError):screening.view(self.path,{'start':'2025-01-01','end':'2031-01-01'})
