@@ -109,6 +109,7 @@ def prepare_database(path,read_only=False):
         db.execute("UPDATE refresh_jobs SET status='interrupted',finished_at=?,error=? WHERE status IN ('queued','running')",(now(),reason))
         for table in ('runs','corpus_runs','followups'):
             db.execute(f"UPDATE {table} SET status='failed',finished_at=?,error=? WHERE status='running'",(now(),reason))
+        db.execute("UPDATE screening_runs SET status='failed',finished_at=?,error=? WHERE status IN ('queued','running')",(now(),reason))
 
 
 def restore_database(source,destination):

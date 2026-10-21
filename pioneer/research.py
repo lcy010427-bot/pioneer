@@ -69,6 +69,8 @@ def init_research(path):
         db.execute("INSERT OR REPLACE INTO metadata VALUES ('schema_version','4')")
     from .radar import init_radar
     init_radar(path)
+    from .screening import init_screening
+    init_screening(path)
 
 
 def require_live(path):

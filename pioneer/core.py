@@ -54,8 +54,10 @@ def init_db(path, kind='live'):
         if row and row['value'] != kind:
             raise ValueError('실자료와 데모 DB를 혼합할 수 없습니다. 별도 DB 경로를 사용하세요.')
         db.execute('INSERT OR IGNORE INTO metadata VALUES (?, ?)', ('dataset_kind', kind))
-        for cid, name, terms in WATCHLIST:
-            db.execute('INSERT OR IGNORE INTO chemicals VALUES (?, ?, ?)', (cid, name, json.dumps(terms)))
+        screening_only=db.execute("SELECT value FROM metadata WHERE key='screening_only'").fetchone()
+        if not screening_only or screening_only['value']!='true':
+            for cid, name, terms in WATCHLIST:
+                db.execute('INSERT OR IGNORE INTO chemicals VALUES (?, ?, ?)', (cid, name, json.dumps(terms)))
     from .research import init_research
     init_research(path)
     with connect(path) as db:

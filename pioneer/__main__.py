@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .core import collect, connect, init_db, seed_demo, view
-from . import research, radar
+from . import research, radar, screening
 
 WEB = Path(__file__).resolve().parent.parent / 'web'
 
@@ -77,6 +77,8 @@ def handler_for(db_path, port, public_origin=None, read_only=False, admin_origin
                     if path.endswith('.csv'):
                         return self.send(200,radar.report_csv(report).encode('utf-8'),'text/csv; charset=utf-8')
                     return self.send(200,report)
+                if path=='/api/screen/meta':return self.send(200,screening.meta(db_path))
+                if path=='/api/screen':return self.send(200,screening.view(db_path,{k:v[0] for k,v in params.items()}))
                 if path=='/api/radar/reports':return self.send(200,radar.saved_reports(db_path))
                 if path=='/api/radar/articles':return self.send(200,radar.articles(db_path,{k:v[0] for k,v in params.items()}))
                 if path=='/api/radar/jobs':return self.send(200,radar.jobs(db_path))
@@ -111,6 +113,7 @@ def handler_for(db_path, port, public_origin=None, read_only=False, admin_origin
                      '/timeline.js': ('timeline.js', 'text/javascript; charset=utf-8'),
                      '/research.js': ('research.js', 'text/javascript; charset=utf-8'),
                      '/radar.js': ('radar.js', 'text/javascript; charset=utf-8'),
+                     '/screen.js': ('screen.js', 'text/javascript; charset=utf-8'),
                      '/style.css': ('style.css', 'text/css; charset=utf-8'),
                      '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
             if path in files:
@@ -125,7 +128,7 @@ def handler_for(db_path, port, public_origin=None, read_only=False, admin_origin
                 self.headers.get('Sec-Fetch-Site') == 'cross-site'):
                 return self.send(403, {'error': '동일 출처 요청만 허용합니다.'})
             if read_only:return self.send(403,{'error':'조회 전용 사이트입니다. 갱신·기록은 운영자 사이트에서 진행하세요.'})
-            routes={'/api/collect','/api/discover','/api/identify','/api/review','/api/promote','/api/fulltext','/api/followup','/api/relation','/api/evaluation/start','/api/evaluation/finish','/api/radar/report','/api/radar/decision','/api/radar/lookup','/api/radar/refresh','/api/radar/corpus'}
+            routes={'/api/collect','/api/discover','/api/identify','/api/review','/api/promote','/api/fulltext','/api/followup','/api/relation','/api/evaluation/start','/api/evaluation/finish','/api/radar/report','/api/radar/decision','/api/radar/lookup','/api/radar/refresh','/api/radar/corpus','/api/screen'}
             if self.path not in routes:
                 return self.send(404, {'error':'찾을 수 없습니다.'})
             if self.headers.get('Content-Type','').split(';')[0]!='application/json':
@@ -142,7 +145,9 @@ def handler_for(db_path, port, public_origin=None, read_only=False, admin_origin
             if not lock.acquire(blocking=False):
                 return self.send(409,{'error':'다른 작업이 진행 중입니다. 완료 후 다시 시도하세요.'})
             try:
-                if self.path=='/api/radar/report':
+                if self.path=='/api/screen':
+                    result=screening.start(db_path,data)
+                elif self.path=='/api/radar/report':
                     result=radar.save_report(db_path,data)
                 elif self.path=='/api/radar/decision':
                     result={'decision_id':radar.report_decision(db_path,data)}
@@ -217,6 +222,10 @@ def main():
     collector.add_argument('--start', type=int, required=True)
     collector.add_argument('--end', type=int, required=True)
     collector.add_argument('--max-pages', type=int, default=10)
+    screener=subs.add_parser('screen')
+    screener.add_argument('--start',required=True)
+    screener.add_argument('--end',required=True)
+    screener.add_argument('--max-pages',type=int,default=10)
     subs.add_parser('export')
     subs.add_parser('analyze')
     subs.add_parser('discover')
@@ -234,6 +243,10 @@ def main():
         init_db(args.db)
         rid = collect(args.db, args.chemical_id, args.start, args.end, args.max_pages)
         print(json.dumps({'run_id': rid}))
+    elif args.command == 'screen':
+        init_db(args.db)
+        rid=screening.run(args.db,args.start,args.end,args.max_pages)
+        print(json.dumps({'screening_run_id':rid},ensure_ascii=False))
     elif args.command in ('export','analyze'):
         research.init_research(args.db)
         print(json.dumps(research.workspace(args.db),ensure_ascii=False,indent=2))

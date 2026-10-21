@@ -1,0 +1,13 @@
+const {chromium}=require('playwright');const assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox']});const errors=[];
+ const page=await browser.newPage({viewport:{width:1440,height:1000}});page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(process.env.PIONEER_SCREEN_URL||'http://127.0.0.1:8770');await page.waitForSelector('[data-open]');
+ assert.ok((await page.locator('#screen-summary').innerText()).includes('화학물질 후보'));
+ assert.ok(await page.locator('.screen-table tbody tr').count()>10);assert.equal(await page.locator('#screen-refresh').isHidden(),true);
+ assert.equal(await page.locator('#watchlist').count(),0);await page.locator('[data-period="1q"]').click();
+ await page.waitForFunction(()=>document.querySelector('#screen-start').value==='2026-07-22');await page.waitForSelector('[data-open]');
+ await page.locator('[data-open]').first().click();assert.equal(await page.locator('#screen-dialog').evaluate(x=>x.open),true);
+ assert.ok(await page.locator('#dialog-body .radar-paper').count()>0);await page.locator('#dialog-close').click();
+ await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ assert.deepEqual(errors,[]);await browser.close();console.log('screen browser check passed');
+})().catch(e=>{console.error(e);process.exit(1)});
