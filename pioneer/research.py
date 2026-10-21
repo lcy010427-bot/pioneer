@@ -71,6 +71,8 @@ def init_research(path):
     init_radar(path)
     from .screening import init_screening
     init_screening(path)
+    from .tracking import init_tracking
+    init_tracking(path)
 
 
 def require_live(path):

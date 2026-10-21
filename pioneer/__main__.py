@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .core import collect, connect, init_db, seed_demo, view
-from . import research, radar, screening
+from . import research, radar, screening, tracking
 
 WEB = Path(__file__).resolve().parent.parent / 'web'
 
@@ -77,8 +77,9 @@ def handler_for(db_path, port, public_origin=None, read_only=False, admin_origin
                     if path.endswith('.csv'):
                         return self.send(200,radar.report_csv(report).encode('utf-8'),'text/csv; charset=utf-8')
                     return self.send(200,report)
+                if path=='/api/track':return self.send(200,tracking.detail(db_path,{k:v[0] for k,v in params.items()}))
+                if path=='/api/track/list':return self.send(200,tracking.tracked(db_path))
                 if path=='/api/screen/meta':return self.send(200,screening.meta(db_path))
-                if path=='/api/screen/profiles':return self.send(200,screening.profiles(db_path,{k:v[0] for k,v in params.items()}))
                 if path=='/api/screen':return self.send(200,screening.view(db_path,{k:v[0] for k,v in params.items()}))
                 if path=='/api/radar/reports':return self.send(200,radar.saved_reports(db_path))
                 if path=='/api/radar/articles':return self.send(200,radar.articles(db_path,{k:v[0] for k,v in params.items()}))
@@ -115,6 +116,9 @@ def handler_for(db_path, port, public_origin=None, read_only=False, admin_origin
                      '/research.js': ('research.js', 'text/javascript; charset=utf-8'),
                      '/radar.js': ('radar.js', 'text/javascript; charset=utf-8'),
                      '/screen.js': ('screen.js', 'text/javascript; charset=utf-8'),
+                     '/track': ('track.html', 'text/html; charset=utf-8'),
+                     '/track.js': ('track.js', 'text/javascript; charset=utf-8'),
+                     '/track.css': ('track.css', 'text/css; charset=utf-8'),
                      '/style.css': ('style.css', 'text/css; charset=utf-8'),
                      '/fonts/PretendardVariable.woff2': ('fonts/PretendardVariable.woff2', 'font/woff2'),
                      '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
@@ -130,7 +134,7 @@ def handler_for(db_path, port, public_origin=None, read_only=False, admin_origin
                 self.headers.get('Sec-Fetch-Site') == 'cross-site'):
                 return self.send(403, {'error': '동일 출처 요청만 허용합니다.'})
             if read_only:return self.send(403,{'error':'조회 전용 사이트입니다. 갱신·기록은 운영자 사이트에서 진행하세요.'})
-            routes={'/api/collect','/api/discover','/api/identify','/api/review','/api/promote','/api/fulltext','/api/followup','/api/relation','/api/evaluation/start','/api/evaluation/finish','/api/radar/report','/api/radar/decision','/api/radar/lookup','/api/radar/refresh','/api/radar/corpus','/api/screen'}
+            routes={'/api/collect','/api/discover','/api/identify','/api/review','/api/promote','/api/fulltext','/api/followup','/api/relation','/api/evaluation/start','/api/evaluation/finish','/api/radar/report','/api/radar/decision','/api/radar/lookup','/api/radar/refresh','/api/radar/corpus','/api/screen','/api/screen/track'}
             if self.path not in routes:
                 return self.send(404, {'error':'찾을 수 없습니다.'})
             if self.headers.get('Content-Type','').split(';')[0]!='application/json':
@@ -149,6 +153,8 @@ def handler_for(db_path, port, public_origin=None, read_only=False, admin_origin
             try:
                 if self.path=='/api/screen':
                     result=screening.start(db_path,data)
+                elif self.path=='/api/screen/track':
+                    result=tracking.from_screening(db_path,data)
                 elif self.path=='/api/radar/report':
                     result=radar.save_report(db_path,data)
                 elif self.path=='/api/radar/decision':
@@ -228,6 +234,12 @@ def main():
     screener.add_argument('--start',required=True)
     screener.add_argument('--end',required=True)
     screener.add_argument('--max-pages',type=int,default=10)
+    picker=subs.add_parser('track-candidate',help='스크리닝 후보를 추적 목록에 넣고 수집')
+    picker.add_argument('candidate_id')
+    picker.add_argument('--name')
+    picker.add_argument('--start-year',type=int)
+    picker.add_argument('--end-year',type=int)
+    picker.add_argument('--max-pages',type=int,default=10)
     subs.add_parser('export')
     subs.add_parser('analyze')
     subs.add_parser('discover')
@@ -249,6 +261,19 @@ def main():
         init_db(args.db)
         rid=screening.run(args.db,args.start,args.end,args.max_pages)
         print(json.dumps({'screening_run_id':rid},ensure_ascii=False))
+    elif args.command=='track-candidate':
+        init_db(args.db)
+        request={'candidate_id':args.candidate_id,'max_pages':args.max_pages}
+        if args.name:request['name']=args.name
+        if args.start_year:request['start_year']=args.start_year
+        if args.end_year:request['end_year']=args.end_year
+        result=tracking.from_screening(args.db,request,launch=False)
+        if result.get('job'):
+            # Run the collection in the foreground so the CLI returns only when it is done.
+            with connect(args.db) as db:
+                job=json.loads(db.execute('SELECT request FROM refresh_jobs WHERE id=?',(result['job']['id'],)).fetchone()['request'])
+            radar.refresh_worker(args.db,result['job']['id'],job)
+        print(json.dumps(result,ensure_ascii=False,indent=2))
     elif args.command in ('export','analyze'):
         research.init_research(args.db)
         print(json.dumps(research.workspace(args.db),ensure_ascii=False,indent=2))
