@@ -1,16 +1,13 @@
-# Paid web service + persistent disk. Review Render's displayed price BEFORE deploy.
+# Free preview deployment. The filesystem is temporary: operator changes can be
+# lost whenever Render replaces or restarts the instance.
 services:
   - type: web
     name: pioneer
     runtime: docker
     dockerfilePath: ./Dockerfile.render
-    plan: starter
+    plan: free
     region: singapore
     healthCheckPath: /healthz
-    disk:
-      name: pioneer-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
       - key: PIONEER_USERNAME
         value: admin
