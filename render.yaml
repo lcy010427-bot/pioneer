@@ -1,0 +1,18 @@
+# Paid web service + persistent disk. Review Render's displayed price BEFORE deploy.
+services:
+  - type: web
+    name: pioneer
+    runtime: docker
+    dockerfilePath: ./Dockerfile.render
+    plan: starter
+    region: singapore
+    healthCheckPath: /healthz
+    disk:
+      name: pioneer-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: PIONEER_USERNAME
+        value: admin
+      - key: PIONEER_ADMIN_PASSWORD
+        sync: false

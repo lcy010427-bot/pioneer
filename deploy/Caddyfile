@@ -1,0 +1,50 @@
+{
+    email {$ACME_EMAIL}
+    admin off
+    servers {
+        timeouts {
+            read_header 10s
+            read_body 20s
+            idle 60s
+        }
+    }
+}
+(common) {
+    encode zstd gzip
+    request_body {
+        max_size 8KB
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        -Server
+    }
+}
+{$DOMAIN} {
+    import common
+    @writes method POST PUT PATCH DELETE
+    respond @writes "조회 전용 사이트입니다. 운영자 사이트를 이용하세요." 403
+    reverse_proxy public:8765 {
+        header_up -Authorization
+        header_up -Cookie
+        transport http {
+            dial_timeout 5s
+            response_header_timeout 180s
+        }
+    }
+}
+{$ADMIN_DOMAIN} {
+    import common
+    basic_auth {
+        {$PIONEER_USERNAME} {$PIONEER_PASSWORD_HASH}
+    }
+    reverse_proxy app:8765 {
+        header_up -Authorization
+        header_up -Cookie
+        transport http {
+            dial_timeout 5s
+            response_header_timeout 180s
+        }
+    }
+}

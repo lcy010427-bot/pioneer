@@ -1,0 +1,12 @@
+FROM caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d AS caddy
+FROM python:3.12-slim-bookworm@sha256:5d9e6adc9abd558bc0ce05f9ab16cef71328916fc9728f6b81e337af86a737e2
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIONEER_DB=/data/pioneer.sqlite PORT=10000
+WORKDIR /app
+RUN groupadd --gid 10001 pioneer && useradd --uid 10001 --gid 10001 --no-create-home pioneer && mkdir /data && chown 10001:10001 /data
+COPY --from=caddy /usr/bin/caddy /usr/bin/caddy
+COPY --chown=10001:10001 pioneer ./pioneer
+COPY --chown=10001:10001 web ./web
+COPY --chown=10001:10001 docs/methods.json ./docs/methods.json
+COPY --chown=10001:10001 public-data ./public-data
+EXPOSE 10000
+CMD ["python", "-m", "pioneer.managed"]
