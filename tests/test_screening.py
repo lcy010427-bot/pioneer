@@ -36,6 +36,9 @@ class ScreeningTests(unittest.TestCase):
         self.assertEqual(data['run']['baseline_fetched'],1)
         self.assertNotIn('documents',data['run'])
         self.assertTrue(row['evidence'][0]['source_id'].startswith('MED:'))
+        saved=screening.view(self.path,{'start':'2025-01-01','end':'2025-12-31','unit':'month',
+            'search':'no matching name','ids':row['id']})
+        self.assertEqual(saved['rows'][0]['id'],row['id'])
 
     def test_invalid_period_is_rejected(self):
         with self.assertRaises(ValueError):screening.view(self.path,{'start':'2025-01-01','end':'2031-01-01'})

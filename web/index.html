@@ -13,9 +13,14 @@
   <p id="screen-message" class="muted" role="status"></p>
  </section>
  <section id="screen-summary" class="radar-summary" aria-live="polite"></section>
+ <section class="panel saved-panel" aria-labelledby="saved-title">
+  <div class="panel-heading"><div><h2 id="saved-title">내 레이더</h2><p class="muted">전체 감시에서 발견한 물질을 저장하고 같은 기간의 추이를 비교합니다. 목록은 이 브라우저에만 저장됩니다.</p></div><button id="saved-clear" class="quiet" type="button">전체 비우기</button></div>
+  <div id="saved-list" class="saved-list" aria-live="polite"></div>
+  <div id="saved-compare" class="saved-compare" aria-live="polite"></div>
+ </section>
  <section class="panel screen-results"><div class="screen-toolbar"><label>발견된 물질 검색<input id="screen-search" type="search" placeholder="물질명 또는 ChEBI ID"></label><p class="muted">증가량이 큰 순서 · 물질별 논문 중복 제거</p></div><div id="screen-table" aria-live="polite">자료를 불러오는 중입니다.</div></section>
  <details class="panel screen-method"><summary>이 감시망이 찾는 범위와 해석 방법</summary><p id="screen-scope"></p><ul id="screen-limitations"></ul><p class="muted">문헌 주석은 자동 추출 결과이므로 명칭·식별 오류가 있을 수 있습니다. 결과는 후보 탐색용이며 위해성·규제 우선순위가 아닙니다.</p></details>
 </main>
-<dialog id="screen-dialog"><div class="dialog-head"><h2 id="dialog-title"></h2><button id="dialog-close" class="quiet" aria-label="닫기">닫기</button></div><div id="dialog-body"></div></dialog>
+<dialog id="screen-dialog"><div class="dialog-head"><div><p class="eyebrow">물질 상세</p><h2 id="dialog-title"></h2></div><div class="dialog-actions"><button id="dialog-save" type="button">내 레이더에 저장</button><button id="dialog-close" class="quiet" aria-label="닫기">닫기</button></div></div><div id="dialog-body"></div></dialog>
 <footer>Europe PMC 문헌·화학물질 주석 기반 · 검색 범위와 수집량을 결과에 함께 표시합니다.</footer>
 <script src="/screen.js"></script></body></html>

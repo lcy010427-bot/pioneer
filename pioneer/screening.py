@@ -214,6 +214,7 @@ def view(path,params):
     unit=params.get('unit','month')
     if unit not in ('week','month','quarter'):raise ValueError('그래프 단위가 유효하지 않습니다.')
     search=str(params.get('search','')).strip().lower()[:180]
+    saved_ids={value for value in str(params.get('ids','')).split(',')[:100] if 0<len(value)<=200}
     with connect(path) as db:
         runs=[dict(r) for r in db.execute('SELECT * FROM screening_runs ORDER BY id DESC')]
         exact=next((r for r in runs if r['start_date']==start and r['end_date']==end and r['status'] in ('complete','partial')),None)
@@ -228,7 +229,9 @@ def view(path,params):
                 normalized=re.sub(r'[^a-z0-9]','',row['name'].lower())
                 if row['name'].lower() in GENERIC or (not row['identifier'] and normalized in identified):continue
                 data=json.loads(row['data']);mentions=[m for m in data['mentions'] if m.get('date') and start<=m['date']<=end]
-                if search and search not in row['name'].lower() and search not in str(row['identifier'] or '').lower():continue
+                if (search and search not in row['name'].lower() and
+                        search not in str(row['identifier'] or '').lower() and
+                        row['candidate_id'] not in saved_ids):continue
                 old={m['record_key'] for m in mentions if start<=m['date']<=old_end.isoformat()}
                 recent={m['record_key'] for m in mentions if new_start.isoformat()<=m['date']<=end}
                 total=old|recent
@@ -242,11 +245,14 @@ def view(path,params):
                     recent=len(recent),delta=delta,percent=percent,total=len(total),status=status,
                     buckets=_buckets(mentions,start,end,unit),evidence=evidence[:8]))
     rows.sort(key=lambda r:(-r['delta'],-r['recent'],r['name'].lower()))
+    visible=rows[:300]
+    visible_ids={row['id'] for row in visible}
+    visible.extend(row for row in rows if row['id'] in saved_ids and row['id'] not in visible_ids)
     def summary(run):
         if not run:return None
         return {k:run[k] for k in ('id','query','start_date','end_date','started_at','finished_at','status',
             'baseline_total','baseline_fetched','recent_total','recent_fetched','annotated','error','rules_version')}
-    return dict(run=summary(chosen),latest_run=summary(latest),rows=rows[:300],total_candidates=len(rows),
+    return dict(run=summary(chosen),latest_run=summary(latest),rows=visible,total_candidates=len(rows),
         growing=sum(r['status'] in ('growing','early') for r in rows),start=start,end=end,unit=unit,
         exact_scope=bool(exact),rules_version=VERSION,
         scope='선택 기간의 환경·신흥오염물질 문헌에서 Europe PMC 화학물질 주석과 명칭 패턴으로 찾은 후보입니다.',

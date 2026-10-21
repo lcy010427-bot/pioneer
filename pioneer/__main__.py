@@ -115,6 +115,7 @@ def handler_for(db_path, port, public_origin=None, read_only=False, admin_origin
                      '/radar.js': ('radar.js', 'text/javascript; charset=utf-8'),
                      '/screen.js': ('screen.js', 'text/javascript; charset=utf-8'),
                      '/style.css': ('style.css', 'text/css; charset=utf-8'),
+                     '/fonts/PretendardVariable.woff2': ('fonts/PretendardVariable.woff2', 'font/woff2'),
                      '/favicon.svg': ('favicon.svg', 'image/svg+xml')}
             if path in files:
                 file, mime = files[path]

@@ -6,8 +6,15 @@ const {chromium}=require('playwright');const assert=require('node:assert/strict'
  assert.ok(await page.locator('.screen-table tbody tr').count()>10);assert.equal(await page.locator('#screen-refresh').isHidden(),true);
  assert.equal(await page.locator('#watchlist').count(),0);await page.locator('[data-period="1q"]').click();
  await page.waitForFunction(()=>document.querySelector('#screen-start').value==='2026-07-22');await page.waitForSelector('[data-open]');
+ await page.locator('[data-save]').first().click();assert.equal(await page.locator('.saved-chip').count(),1);
+ assert.ok((await page.locator('#saved-compare').innerText()).includes('저장 물질 비교'));
+ assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('pioneer-my-radar-v1')).length),1);
+ await page.reload();await page.waitForSelector('.saved-chip');assert.equal(await page.locator('.saved-chip').count(),1);
  await page.locator('[data-open]').first().click();assert.equal(await page.locator('#screen-dialog').evaluate(x=>x.open),true);
  assert.ok(await page.locator('#dialog-body .radar-paper').count()>0);await page.locator('#dialog-close').click();
+ const font=await page.evaluate(()=>getComputedStyle(document.body).fontFamily);assert.ok(font.includes('Pretendard'));
+ await page.screenshot({path:'.data/my-radar-desktop.png',fullPage:false});
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ await page.screenshot({path:'.data/my-radar-mobile.png',fullPage:false});
  assert.deepEqual(errors,[]);await browser.close();console.log('screen browser check passed');
 })().catch(e=>{console.error(e);process.exit(1)});
