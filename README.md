@@ -1,71 +1,52 @@
-# PIONEER · Hot Chemical Monitor
+# PIONEER · Journal Chemical Radar
 
-PIONEER는 기존 `radar.py`의 **18개 후보 감시 Hot Radar**와 **선택한 물질을 깊게 검토하는 물질 분석**을 연결한 연구 감시망입니다.
+지정한 환경·보건 저널의 논문에서 물질과 물질군을 자동 발견하는 연구용 웹사이트입니다. 물질 목록을 미리 정하지 않습니다.
 
-첫 화면에서 5년 / 1년 / 최근 3개월 / 직접 지정 기간을 선택합니다. 기간을 같은 일수의 전반과 후반으로 나누고, 물질별 고유 문헌 수·증가량·증가율·시간 선그래프를 표시합니다. 물질을 누르면 계산에 포함된 제목·초록의 화학물질 주석과 원문 링크를 확인할 수 있습니다.
+- **Hot Radar**: 시작일·종료일을 설정하고, 문헌에서 발견한 후보·시간 추이·전후반 건수·근거 문장·저널·DOI/Europe PMC 링크를 확인합니다.
+- **물질 분석**: 사용자가 보관함에 추가한 후보만 기존 추이·문헌·맥락·공백·비교 화면에서 검토합니다. 기본 분석 물질은 없습니다.
+- 보관함은 현재 브라우저에 저장됩니다. Pretendard와 파란색 레이더 디자인을 유지합니다.
 
-Hot Radar는 `public-data/candidates.json`의 기존 18개 물질과 동의어를 사용합니다. 각 물질의 전반·후반 문헌 수, 증가량, 선그래프, 신호 점수와 근거 문헌을 보여줍니다. 물질 분석 탭에는 사용자가 보관함에 저장한 후보만 나타나며 기존 기간별 추이·근거 문헌·맥락·공백·비교 분석을 적용합니다. 보관함은 현재 브라우저에 저장됩니다. 화면 서체는 Pretendard Variable을 사용합니다.
+## 수집 범위
 
-## 현재 시작 데이터
+Europe PMC API에서 다음 10개 저널을 ISSN으로 조회합니다. 출판사 사이트나 유료 원문은 수집하지 않습니다.
 
-2026-10-21 기준 Europe PMC의 다음 검색 범위에서 문헌을 수집했습니다.
+1. Environmental Health Perspectives
+2. Environmental Science & Technology
+3. Environmental Science & Technology Letters
+4. Environment International
+5. Journal of Hazardous Materials
+6. Water Research
+7. Environmental Pollution
+8. Science of the Total Environment
+9. Chemosphere
+10. Analytical Chemistry
 
-```text
-TITLE_ABS:"emerging contaminants"
-OR TITLE_ABS:"environmental pollutants"
-OR TITLE_ABS:"contaminants of emerging concern"
-```
+저널 목록은 `pioneer/journals.py`에 있습니다. 검색식에 특정 물질이나 `emerging contaminant` 필수어를 넣지 않습니다. 자료원 주석과 화학 명칭·물질군 문구 및 약어를 함께 추출합니다. 예를 들어 `liquid crystal monomers (LCMs)`와 사전에 없던 `fluorinated oligomers (NFOs)`를 추출할 수 있습니다. 자동 명칭과 구조 식별자는 원문 확인이 필요합니다. 모든 물질군·화학명을 빠짐없이 인식하는 기능은 아닙니다.
 
-| 기간 | 확인 문헌 | 고정 후보 | 새 근거 신호 후보 |
-| --- | ---: | ---: | ---: |
-| 5년 | 1,000 | 18 | 5 |
-| 1년 | 1,000 | 18 | 4 |
-| 최근 3개월 | 444 | 18 | 2 |
+기간은 같은 길이의 전반과 후반으로 비교합니다. 가운데 하루가 남으면 비교에서 제외합니다. 조회 기간 전체의 선그래프에는 그 날도 포함됩니다. 자료원 수집 한도를 넘으면 **부분 표본**이며, 건수·증감·신규 표시는 수집 범위 내 관찰입니다. 신규 표시는 세계 최초 보고를 뜻하지 않습니다. 신규 한 편도 근거와 함께 표시하며, 문헌 증가 신호는 후반 5건 이상·증가 3건 이상·증가율 50% 이상이라는 잠정값을 사용합니다. 노출·검출·독성·규제 신호는 후보 주변 근거 문장의 키워드 문맥이며 위해성 판정이나 기관의 공식 조치 확인이 아닙니다.
 
-5년과 1년은 전반·후반 각 500개를 확인한 **부분 수집 표본**입니다. 최근 3개월은 전반 236개, 후반 208개를 모두 받은 완전 수집입니다. 고정 후보는 사용자가 제공한 기존 `candidates.json`의 18개 물질입니다.
+수집 한도는 저널마다 동일하게 배분합니다. 기본 운영 한도는 전·후반 각각 최대 1,000건이며 저널당 최대 100건입니다. 조회 데이터가 없는 날짜는 수집 결과가 없다고 표시하며 운영자가 원하는 기간을 수집할 수 있습니다. 새 수집 완료까지 작업 상태를 확인한 뒤 목록을 갱신합니다.
 
-다중 신호 후보는 N/E/H/X/R 가운데 하나 이상의 제목·초록 신호가 있는 후보입니다. 이는 과학적 적합성이 검증된 후보 수가 아닙니다. 화학물질 주석에는 식별 오류와 일반 화학 분류가 섞일 수 있고, 검색식 밖 문헌과 주석이 없는 물질은 누락됩니다. 문헌 언급 증가는 위해성, 사용량, 환경 농도 또는 규제 우선순위의 증가를 뜻하지 않습니다.
+공개 페이지에서는 누구나 기간을 바꿔 저장된 결과를 조회하고 개인 보관함에 추가할 수 있습니다. 외부 자료 수집은 `/operator` 로그인 후 실행합니다. Crossref 직접 수집, NORMAN, CompTox, 공식 규제 자료 연계는 현재 포함하지 않습니다. 자료원에 아직 색인되지 않은 최신 논문과 초록 미제공 논문은 누락될 수 있습니다.
 
-## Emerging 다중 신호
+## 온라인 실행
 
-- N: 최근 최초·신규 언급, 증가율, 대체재·변환체·새 사용처 문맥
-- E: 환경 검출·측정·매질 문맥과 전후반 변화
-- H: 독성 및 endpoint 문맥
-- X: 노출·사용·배출 문맥
-- R: 규제·watch list·restriction 문맥
-- G: 명시적인 지식공백 문맥. E 또는 X가 30점 이상일 때만 반영
+동봉 시작 자료는 2026-10-22 기준 API 실수집 결과입니다. 1년 기간 895건, 최근 3개월 785건, 5년 기간 1,000건을 포함하며 모두 부분 표본입니다. 기간별 자료가 겹칠 수 있습니다. 검색 총건수와 저널별 수신 건수는 `public-data/manifest.json`과 화면에서 확인할 수 있습니다. 사용자가 예시로 제공한 DOI `10.1021/EHP.6c00619`는 수집 시점 Europe PMC에서 조회되지 않아 이 논문을 실수집 근거로 넣지 않았습니다.
 
-각 차원은 기존 코드와 같은 0–5점이며 `N + E + H + X + R + gated G`의 합계, 최대 30점으로 정렬합니다. G는 E 또는 X가 2점 이상일 때만 합산합니다. 현재 자동 증분은 제목·초록의 근거 신호이며 점수는 위해성 결론이 아니라 검토 순서입니다.
+GitHub 저장소 최상단에 이 프로젝트의 파일을 올리고 기존 Render 서비스에서 다시 빌드합니다. `Dockerfile.render`와 `render.yaml`을 사용합니다. 사용자 컴퓨터에 Python을 설치할 필요는 없습니다. 배포를 직접 수행하지 않은 소스 패키지입니다.
 
-## 배포
+Render 무료 파일시스템에서는 재시작 시 운영자가 추가한 자료가 시작 데이터로 돌아갈 수 있습니다. 보존하려면 영구 디스크나 별도 Docker 서버가 필요합니다. 자세한 설정은 [Render 안내](docs/render.md)를 참고하세요.
 
-`render.yaml`은 Render 무료 미리보기 구성을 사용합니다. Python은 Render의 Docker 이미지 안에서 실행되므로 사용자 컴퓨터에 설치할 필요가 없습니다.
-
-- 공개 주소: 누구나 감시 결과 조회
-- `/operator`: 운영자 로그인 후 새 기간 스크리닝 실행
-- 무료형 파일시스템: Render가 인스턴스를 교체하거나 재시작하면 운영 중 새로 만든 결과가 시작 데이터로 돌아갈 수 있음
-- 운영 기록을 계속 보존하려면 유료 영구 디스크 또는 별도 Docker 서버 필요
-
-자세한 화면 절차는 [Render 배포 안내](docs/render.md), 별도 서버 구성은 [Docker 배포 안내](docs/deployment.md)를 참고하세요.
-
-## 로컬 실행
+## 로컬 실행 및 검사
 
 Python 3.12+ 표준 라이브러리만 사용합니다.
 
 ```sh
-python3 -m pioneer init
-python3 -m pioneer screen --start 2025-10-22 --end 2026-10-21 --max-pages 5
-python3 -m pioneer serve --port 8765
-```
-
-새 스크리닝은 Europe PMC 검색 API와 화학물질 주석 API를 호출합니다. 한 구간당 100개 단위로 최대 25페이지까지 제한합니다. API 키와 유료 외부 AI는 사용하지 않습니다.
-
-## 검사
-
-```sh
-python3 -m unittest discover -s tests -v
+python -m pioneer init
+python -m pioneer screen --start 2025-10-23 --end 2026-10-22 --max-pages 10
+python -m pioneer serve --port 8765
+python -m unittest discover -s tests -q
 node --check web/radar.js
-node tests/screen-browser.cjs
 ```
 
-현재 Python 단위·HTTP 통합 검사와 실제 시작 데이터를 이용한 데스크톱·모바일 브라우저 흐름을 통과했습니다. Hot Radar 후보·근거·원문 출처 표시, 후보 저장, 새로고침 후 보관 유지, 저장한 물질만 물질 분석으로 이동하는 흐름을 확인합니다.
+단위·HTTP 검사와 실제 브라우저에서 후보 → 근거 → 저장 → 물질 분석 흐름을 확인합니다. 테스트 예시 물질은 검사 코드에서만 명시적으로 넣습니다.

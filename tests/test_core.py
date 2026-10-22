@@ -22,7 +22,7 @@ class CoreTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.path = str(Path(self.temp.name)/'live.sqlite')
-        init_db(self.path)
+        init_db(self.path,seed_examples=True)
         self.year = dt.date.today().year
 
     def tearDown(self):

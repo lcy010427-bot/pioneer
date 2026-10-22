@@ -9,6 +9,8 @@ import threading
 from pathlib import Path
 
 from . import deployment
+from . import screening
+from .core import connect
 from .__main__ import handler_for
 
 
@@ -63,6 +65,26 @@ def bootstrap(path,asset):
         deployment.restore_database(seed,path)
 
 
+def install_journal_starter(path,asset):
+    """Append the new public corpus on older persistent disks; preserve user data."""
+    with connect(path) as db:
+        if db.execute("SELECT 1 FROM screening_runs WHERE query=? AND status IN ('complete','partial') LIMIT 1",(screening.QUERY,)).fetchone():return
+    with tempfile.TemporaryDirectory(dir=Path(path).parent) as folder:
+        seed=Path(folder)/'journals.sqlite'
+        with gzip.open(asset,'rb') as src,seed.open('wb') as dst:
+            import shutil
+            shutil.copyfileobj(src,dst)
+        with connect(path) as db:
+            db.execute('ATTACH DATABASE ? AS journal_seed',(str(seed),))
+            # Recheck while holding the writer transaction; do not overwrite runs.
+            db.execute('BEGIN IMMEDIATE')
+            if db.execute("SELECT 1 FROM screening_runs WHERE query=? AND status IN ('complete','partial') LIMIT 1",(screening.QUERY,)).fetchone():return
+            for row in db.execute("SELECT * FROM journal_seed.screening_runs WHERE query=? AND status IN ('complete','partial')",(screening.QUERY,)).fetchall():
+                columns=[k for k in row.keys() if k!='id']
+                rid=db.execute('INSERT INTO screening_runs ('+','.join(columns)+') VALUES ('+','.join('?' for _ in columns)+')',[row[k] for k in columns]).lastrowid
+                db.execute('INSERT INTO screening_candidates SELECT ?,candidate_id,name,identifier,data FROM journal_seed.screening_candidates WHERE run_id=?',(rid,row['id']))
+
+
 def main():
     # A new managed disk may be owned by root. Only the initial ownership step
     # runs privileged; both HTTP servers and Caddy run as UID/GID 10001.
@@ -86,6 +108,7 @@ def main():
     bootstrap(path,Path(__file__).resolve().parent.parent/'public-data/starter.sqlite.gz')
     with deployment.writer_lock(path):
         deployment.prepare_database(path)
+        install_journal_starter(path,Path(__file__).resolve().parent.parent/'public-data/starter.sqlite.gz')
         public=deployment.BoundedHTTPServer(('127.0.0.1',8766),handler_for(path,8766,origin,True,origin+'/operator'))
         admin=deployment.BoundedHTTPServer(('127.0.0.1',8765),handler_for(path,8765,origin,False))
         stop=threading.Event()

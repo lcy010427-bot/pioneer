@@ -81,6 +81,7 @@ function chart(){
  });
 }
 function render() {
+  document.querySelector('#workspace .detail').hidden=false;
   initPeriod();syncPeriodControls();
   const c = state.chemicals.find(c=>c.id===selected);
   const demo = state.dataset_kind === 'demo';
@@ -102,7 +103,7 @@ function render() {
   if(typeof renderHotRadar==='function')renderHotRadar();
 }
 function attempt(c){const a=c.latest_attempt;return a?`<p>최근 시도: ${esc(a.started_at)} · ${esc(statusLabel(a.status))} · run #${a.id}</p>${a.error?`<pre class="error">${esc(a.error)}</pre>`:''}${c.run&&a.id!==c.run.id?'<p class="error">최근 시도와 표시 중인 스냅샷이 다릅니다. 마지막 완전 수집본을 표시합니다.</p>':''}`:'<p>수집 이력 없음</p>';}
-async function load(forceResearch=false){await loadSiteConfig();const detailed=forceResearch||window.pioneerDetailLoaded||new URLSearchParams(location.search).get('view')==='detail';const res=await fetch(detailed?'/api/research':'/api/state');if(!res.ok)throw Error('상태 조회 실패');state=await res.json();const ids=savedScreenIds();if(ids.length){const pr=await fetch('/api/screen/profiles?'+new URLSearchParams({ids:ids.join(',')}));if(pr.ok){const profiles=await pr.json();state.chemicals.push(...profiles.filter(p=>!state.chemicals.some(c=>c.id===p.id)));}}if(!state.chemicals.some(c=>c.id===selected))selected=state.chemicals[0]?.id;if(!selected){$('mode').textContent='물질 분석 대상이 없습니다. Hot Radar에서 후보를 보관함에 추가하세요.';$('chemical-count').textContent='0';$('watchlist').innerHTML='<p class="empty">Hot Radar에서 저장한 물질이 여기에 표시됩니다.</p>';if(typeof renderHotRadar==='function'&&mainView==='radar')renderHotRadar();return;}render();}
+async function load(forceResearch=false){await loadSiteConfig();const detailed=forceResearch||window.pioneerDetailLoaded||new URLSearchParams(location.search).get('view')==='detail';const res=await fetch(detailed?'/api/research':'/api/state');if(!res.ok)throw Error('상태 조회 실패');state=await res.json();state.chemicals=[];const ids=savedScreenIds();if(ids.length){const pr=await fetch('/api/screen/profiles?'+new URLSearchParams({ids:ids.join(',')}));if(pr.ok){const profiles=await pr.json();state.chemicals.push(...profiles.filter(p=>!state.chemicals.some(c=>c.id===p.id)));}}if(!state.chemicals.some(c=>c.id===selected))selected=state.chemicals[0]?.id;if(!selected){$('mode').textContent='물질 분석 대상이 없습니다. Hot Radar에서 후보를 보관함에 추가하세요.';document.querySelector('#workspace .detail').hidden=true;$('chemical-count').textContent='0';$('watchlist').innerHTML='<p class="empty">Hot Radar에서 저장한 물질이 여기에 표시됩니다.</p>';if(typeof renderHotRadar==='function'&&mainView==='radar')renderHotRadar();return;}render();}
 function periodBadge(c){const s=time.series(c,periodRange);return s.bins.some(b=>b.count!==null)?`${s.count}건 · ${s.fully_covered?'기간 수집됨':'일부 기간 미수집'}`:'선택 기간 미수집';}
 function applyPeriod(start,end,unit,kind){
  try{time.validate(start,end,unit);periodRange={start,end,unit};periodKind=kind;pointFilter=null;limit=15;$('period-error').textContent='';render();}
@@ -110,7 +111,7 @@ function applyPeriod(start,end,unit,kind){
 }
 document.querySelectorAll('[data-period]').forEach(b=>b.addEventListener('click',()=>{const p=time.preset(b.dataset.period,$('period-end').value||periodRange.end);applyPeriod(p.start,p.end,p.unit,b.dataset.period);}));
 $('period-form').addEventListener('submit',e=>{e.preventDefault();applyPeriod($('period-start').value,$('period-end').value,$('period-unit').value,'custom');});
-window.addEventListener('resize',()=>{if(state&&periodRange)chart();});
+window.addEventListener('resize',()=>{if(state&&periodRange&&selected)chart();});
 $('search').addEventListener('input',()=>{limit=15;papers();});
 $('more').addEventListener('click',()=>{limit+=15;papers();});
 $('clear-year').addEventListener('click',()=>{pointFilter=null;limit=15;chart();papers();});

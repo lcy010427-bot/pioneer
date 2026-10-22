@@ -15,7 +15,7 @@ from pioneer.__main__ import handler_for
 
 class DeploymentTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory();self.path=Path(self.temp.name)/'live.sqlite';init_db(self.path)
+        self.temp=tempfile.TemporaryDirectory();self.path=Path(self.temp.name)/'live.sqlite';init_db(self.path,seed_examples=True)
 
     def tearDown(self):self.temp.cleanup()
 
@@ -96,7 +96,7 @@ class DeploymentTests(unittest.TestCase):
 class PublicHttpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.temp=tempfile.TemporaryDirectory();cls.path=Path(cls.temp.name)/'live.sqlite';init_db(cls.path)
+        cls.temp=tempfile.TemporaryDirectory();cls.path=Path(cls.temp.name)/'live.sqlite';init_db(cls.path,seed_examples=True)
         with connect(cls.path) as db:
             db.execute("INSERT INTO decisions(target_type,target_id,status,actor,reason,created_at,rule_version) VALUES ('paper','test','uncertain','PRIVATE ACTOR','PRIVATE NOTE','now','test')")
         cls.server=deployment.BoundedHTTPServer(('127.0.0.1',0),handler_for(cls.path,0))

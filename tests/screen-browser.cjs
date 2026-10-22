@@ -3,6 +3,8 @@ const {chromium}=require('playwright');const assert=require('node:assert/strict'
  const page=await browser.newPage({viewport:{width:1440,height:1000}});page.on('pageerror',e=>errors.push(e.message));
  await page.goto(process.env.PIONEER_SCREEN_URL||'http://127.0.0.1:8770');await page.waitForSelector('[data-radar-open]',{timeout:30000});
  assert.equal(await page.locator('#hot-radar').isVisible(),true);assert.equal(await page.locator('#detail-view').isVisible(),false);
+ assert.equal(await page.locator('#journal-list .tag').count(),10);
+ assert.ok(!(await page.locator('#hot-radar').innerText()).includes('고정 후보'));
  assert.equal(await page.locator('.signal-questions').count(),0);assert.equal(await page.locator('.source-layers').count(),0);
  assert.ok(await page.locator('.discovery-table tbody tr').count()>10);
  const first=page.locator('.discovery-table tbody tr').first();assert.ok((await first.innerText()).includes('점수'));
@@ -14,10 +16,11 @@ const {chromium}=require('playwright');const assert=require('node:assert/strict'
  assert.ok(await page.locator('#radar-dialog-body a[href*="europepmc.org"]').count());
  await page.locator('#radar-analyze-detail').click();await page.waitForSelector('.watch .shelf-origin');
  assert.equal(await page.locator('#detail-view').isVisible(),true);assert.equal(await page.locator('[data-tab]').count(),6);
+ for(const tab of ['context','questions','compare','candidates','audit','observe']){await page.locator(`[data-tab="${tab}"]`).click();}
  assert.equal(await page.locator('#watchlist .watch').count(),1);assert.ok((await page.locator('#watchlist').innerText()).includes('Hot Radar 저장'));
  await page.locator('[data-main-view="radar"]').click();await page.reload();await page.waitForSelector('.shelf-chip');assert.equal(await page.locator('.shelf-chip').count(),1);
  const font=await page.evaluate(()=>getComputedStyle(document.body).fontFamily);assert.ok(font.includes('Pretendard'));
- await page.screenshot({path:'.data/open-radar-desktop.png'});await page.setViewportSize({width:390,height:844});
- assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'.data/open-radar-mobile.png'});
+ await page.waitForSelector('[data-radar-open]');await page.locator('.radar-results').scrollIntoViewIfNeeded();await page.screenshot({path:'.data/journal-radar-desktop.png'});await page.setViewportSize({width:390,height:844});
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'.data/journal-radar-mobile.png'});
  assert.deepEqual(errors,[]);await browser.close();console.log('open radar browser check passed');
 })().catch(e=>{console.error(e);process.exit(1)});

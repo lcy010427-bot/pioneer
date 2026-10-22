@@ -1,0 +1,233 @@
+{
+  "source": "Europe PMC API",
+  "journals": [
+    {
+      "issn": "0091-6765",
+      "name": "Environmental Health Perspectives"
+    },
+    {
+      "issn": "0013-936X",
+      "name": "Environmental Science & Technology"
+    },
+    {
+      "issn": "2328-8930",
+      "name": "Environmental Science & Technology Letters"
+    },
+    {
+      "issn": "0160-4120",
+      "name": "Environment International"
+    },
+    {
+      "issn": "0304-3894",
+      "name": "Journal of Hazardous Materials"
+    },
+    {
+      "issn": "0043-1354",
+      "name": "Water Research"
+    },
+    {
+      "issn": "0269-7491",
+      "name": "Environmental Pollution"
+    },
+    {
+      "issn": "0048-9697",
+      "name": "Science of the Total Environment"
+    },
+    {
+      "issn": "0045-6535",
+      "name": "Chemosphere"
+    },
+    {
+      "issn": "0003-2700",
+      "name": "Analytical Chemistry"
+    }
+  ],
+  "runs": [
+    {
+      "start": "2025-10-23",
+      "end": "2026-10-22",
+      "status": "partial",
+      "source_matches": 15654,
+      "received": 895,
+      "candidates": 1418,
+      "growth": 8,
+      "new_in_sample": 532,
+      "journal_coverage": [
+        {
+          "issn": "0091-6765",
+          "name": "Environmental Health Perspectives",
+          "records": 62
+        },
+        {
+          "issn": "0013-936X",
+          "name": "Environmental Science & Technology",
+          "records": 100
+        },
+        {
+          "issn": "2328-8930",
+          "name": "Environmental Science & Technology Letters",
+          "records": 33
+        },
+        {
+          "issn": "0160-4120",
+          "name": "Environment International",
+          "records": 100
+        },
+        {
+          "issn": "0304-3894",
+          "name": "Journal of Hazardous Materials",
+          "records": 100
+        },
+        {
+          "issn": "0043-1354",
+          "name": "Water Research",
+          "records": 100
+        },
+        {
+          "issn": "0269-7491",
+          "name": "Environmental Pollution",
+          "records": 100
+        },
+        {
+          "issn": "0048-9697",
+          "name": "Science of the Total Environment",
+          "records": 100
+        },
+        {
+          "issn": "0045-6535",
+          "name": "Chemosphere",
+          "records": 100
+        },
+        {
+          "issn": "0003-2700",
+          "name": "Analytical Chemistry",
+          "records": 100
+        }
+      ]
+    },
+    {
+      "start": "2026-07-23",
+      "end": "2026-10-22",
+      "status": "partial",
+      "source_matches": 3353,
+      "received": 785,
+      "candidates": 1340,
+      "growth": 5,
+      "new_in_sample": 476,
+      "journal_coverage": [
+        {
+          "issn": "0091-6765",
+          "name": "Environmental Health Perspectives",
+          "records": 23
+        },
+        {
+          "issn": "0013-936X",
+          "name": "Environmental Science & Technology",
+          "records": 100
+        },
+        {
+          "issn": "2328-8930",
+          "name": "Environmental Science & Technology Letters",
+          "records": 8
+        },
+        {
+          "issn": "0160-4120",
+          "name": "Environment International",
+          "records": 100
+        },
+        {
+          "issn": "0304-3894",
+          "name": "Journal of Hazardous Materials",
+          "records": 100
+        },
+        {
+          "issn": "0043-1354",
+          "name": "Water Research",
+          "records": 100
+        },
+        {
+          "issn": "0269-7491",
+          "name": "Environmental Pollution",
+          "records": 100
+        },
+        {
+          "issn": "0048-9697",
+          "name": "Science of the Total Environment",
+          "records": 65
+        },
+        {
+          "issn": "0045-6535",
+          "name": "Chemosphere",
+          "records": 89
+        },
+        {
+          "issn": "0003-2700",
+          "name": "Analytical Chemistry",
+          "records": 100
+        }
+      ]
+    },
+    {
+      "start": "2021-10-23",
+      "end": "2026-10-22",
+      "status": "partial",
+      "source_matches": 104267,
+      "received": 1000,
+      "candidates": 1492,
+      "growth": 7,
+      "new_in_sample": 601,
+      "journal_coverage": [
+        {
+          "issn": "0091-6765",
+          "name": "Environmental Health Perspectives",
+          "records": 100
+        },
+        {
+          "issn": "0013-936X",
+          "name": "Environmental Science & Technology",
+          "records": 100
+        },
+        {
+          "issn": "2328-8930",
+          "name": "Environmental Science & Technology Letters",
+          "records": 100
+        },
+        {
+          "issn": "0160-4120",
+          "name": "Environment International",
+          "records": 100
+        },
+        {
+          "issn": "0304-3894",
+          "name": "Journal of Hazardous Materials",
+          "records": 100
+        },
+        {
+          "issn": "0043-1354",
+          "name": "Water Research",
+          "records": 100
+        },
+        {
+          "issn": "0269-7491",
+          "name": "Environmental Pollution",
+          "records": 100
+        },
+        {
+          "issn": "0048-9697",
+          "name": "Science of the Total Environment",
+          "records": 100
+        },
+        {
+          "issn": "0045-6535",
+          "name": "Chemosphere",
+          "records": 100
+        },
+        {
+          "issn": "0003-2700",
+          "name": "Analytical Chemistry",
+          "records": 100
+        }
+      ]
+    }
+  ]
+}

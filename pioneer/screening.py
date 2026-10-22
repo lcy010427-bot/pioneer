@@ -7,21 +7,16 @@ import re
 import threading
 import urllib.parse
 from collections import defaultdict
-from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
-from . import analysis
+from . import analysis, journals
 from .core import connect, normalize, now, read_page
 from .research import get_json, require_live
 
 
-VERSION = 'literature-screen-v2'
+VERSION = 'journal-discovery-v1'
 ANNOTATIONS = 'https://www.ebi.ac.uk/europepmc/annotations_api/annotationsByArticleIds'
-QUERY = ('((TITLE_ABS:"emerging contaminant" OR TITLE_ABS:"emerging contaminants" '
-         'OR TITLE_ABS:"contaminant of emerging concern" OR TITLE_ABS:"contaminants of emerging concern" '
-         'OR TITLE_ABS:"replacement chemical" OR TITLE_ABS:"transformation product" '
-         'OR TITLE_ABS:"suspect screening" OR TITLE_ABS:"non-target screening") '
-         'AND (TITLE_ABS:environment* OR TITLE_ABS:water OR TITLE_ABS:wastewater '
-         'OR TITLE_ABS:sediment OR TITLE_ABS:soil OR TITLE_ABS:dust OR TITLE_ABS:biota))')
+QUERY = journals.QUERY
 GENERIC = {
     'water','oxygen','nitrogen','carbon dioxide','sodium','chloride','sulfate','amino acid',
     'protein','lipid','glucose','atp','dna','rna','hydrogen','calcium','potassium','iron',
@@ -33,6 +28,9 @@ GENERIC = {
     'salt','electron','carbonate mineral','amino oligosaccharide','palmitoyl amino acid',
     'selenite esters','polycyclic hydrocarbon','phthalate','phthalate ester','paraben','quinone',
     'sulfonamide','fluoroquinolone antibiotic','bisphenol','polyethylene polymer','polyester polymer',
+    'antibiotic','antibiotics','pesticide','pesticides','insecticide','insecticides',
+    'herbicide','herbicides','fungicide','fungicides','surfactant','surfactants',
+    'active substance','active substances','thyroid hormone','extracellular polymeric substance',
 }
 SIGNAL_PATTERNS = {
     'environment': re.compile(r'\b(?:detect(?:ed|ion|able)?|occurrence|quantif(?:ied|ication)|measured concentration|'
@@ -56,36 +54,6 @@ GAP_DIMENSIONS = {
     '성차': re.compile(r'\bsex[- ]specific|sex differences?|male and female',re.I),
     '혼합물': re.compile(r'\bmixture|combined exposure|co-exposure',re.I),
 }
-CATALOG_PATH=Path(__file__).resolve().parent.parent/'public-data/candidates.json'
-
-
-def _catalog():
-    return json.loads(CATALOG_PATH.read_text(encoding='utf-8'))
-
-
-def _normalized(value):
-    return re.sub(r'[^a-z0-9]','',str(value).lower())
-
-
-def _catalog_index():
-    result={}
-    for i,item in enumerate(_catalog()):
-        item=dict(item,catalog_id=f'catalog:{i+1}')
-        for alias in [item['preferred_name'],*item['synonyms']]:result[_normalized(alias)]=item
-    return result
-
-
-def _catalog_score(item,signals):
-    counts={k:v['recent'] for k,v in signals['signal_counts'].items()}
-    base=item['baseline'];novel_count=counts['novel_context']
-    n=min(5,base['novelty']+(1 if novel_count>=2 else 0))
-    e=min(5,base['environment']+(1 if counts['environment']>=2 else 0))
-    h=min(5,base['hazard']+(1 if counts['hazard']>=2 else 0))
-    x=min(5,base['exposure']+(1 if counts['exposure']>=2 else 0))
-    r=base['regulatory'];g=base['gap'] if max(e,x)>=2 else 0
-    return dict(N=n,E=e,H=h,X=x,R=r,G=g),n+e+h+x+r+g
-
-
 def init_screening(path):
     with connect(path) as db:
         db.executescript('''
@@ -117,25 +85,33 @@ def _window(start,end):
 
 
 def _collect(start,end,max_pages,fetch_page):
-    query=QUERY+f' AND FIRST_PDATE:[{start.isoformat()} TO {end.isoformat()}]'
-    cursor='*';seen_cursors=set();papers=[];keys=set();total=None;received=0
-    for _ in range(max_pages):
-        page=fetch_page(dict(query=query,format='json',resultType='core',pageSize=100,cursorMark=cursor))
-        raw=page.get('resultList',{}).get('result')
-        if type(page.get('hitCount')) is not int or page['hitCount']<0 or not isinstance(raw,list):
-            raise ValueError('자료원 응답 형식이 유효하지 않습니다.')
-        if total is not None and total!=page['hitCount']:
-            raise ValueError('검색 중 총 문헌 수가 변했습니다.')
-        total=page['hitCount'];received+=len(raw)
-        for item in raw:
-            p=normalize(item);key=p['doi'] or p['source_id']
-            if key not in keys:
-                keys.add(key);p['pub_types']=json.loads(p['pub_types']);papers.append(p)
-        if received>=total:break
-        nxt=page.get('nextCursorMark')
-        if not raw or not nxt or nxt==cursor or nxt in seen_cursors:
-            raise ValueError('문헌 페이지 진행이 중단됐습니다.')
-        seen_cursors.add(cursor);cursor=nxt
+    # Equal caps per journal prevent high-volume journals from occupying all
+    # of a partial sample. Totals include every selected journal, including zeroes.
+    papers=[];keys=set();total=0;received=0
+    per_journal=max(1,max_pages*100//len(journals.JOURNALS))
+    for issn,journal_name in journals.JOURNALS:
+        query=f'ISSN:{issn} AND FIRST_PDATE:[{start.isoformat()} TO {end.isoformat()}]'
+        cursor='*';seen_cursors=set();journal_total=None;journal_received=0
+        while journal_received<per_journal:
+            size=min(100,per_journal-journal_received)
+            page=fetch_page(dict(query=query,format='json',resultType='core',pageSize=size,cursorMark=cursor))
+            raw=page.get('resultList',{}).get('result')
+            if type(page.get('hitCount')) is not int or page['hitCount']<0 or not isinstance(raw,list):
+                raise ValueError('자료원 응답 형식이 유효하지 않습니다.')
+            if journal_total is not None and journal_total!=page['hitCount']:
+                raise ValueError('검색 중 총 문헌 수가 변했습니다.')
+            if journal_total is None:journal_total=page['hitCount'];total+=journal_total
+            journal_received+=len(raw);received+=len(raw)
+            for item in raw:
+                p=normalize(item);p['journal']=p['journal'] or journal_name;p['journal_issn']=issn
+                key=p['doi'] or p['source_id']
+                if key not in keys:
+                    keys.add(key);p['pub_types']=json.loads(p['pub_types']);papers.append(p)
+            if journal_received>=journal_total or journal_received>=per_journal:break
+            nxt=page.get('nextCursorMark')
+            if not raw or not nxt or nxt==cursor or nxt in seen_cursors:
+                raise ValueError('문헌 페이지 진행이 중단됐습니다.')
+            seen_cursors.add(cursor);cursor=nxt
     return total,received,papers
 
 
@@ -149,9 +125,10 @@ def _annotation_batches(papers,request):
             if len(group)==1:return []
             middle=len(group)//2
             return [*fetch_group(group[:middle]),*fetch_group(group[middle:])]
-    for offset in range(0,len(ids),10):
-        group=ids[offset:offset+10]
-        payload=fetch_group(group)
+    groups=[ids[offset:offset+10] for offset in range(0,len(ids),10)]
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        payloads=list(pool.map(fetch_group,groups))
+    for payload in payloads:
         if not isinstance(payload,list):raise ValueError('화학물질 주석 응답 형식이 유효하지 않습니다.')
         for article in payload:
             key=f"{article.get('source')}:{article.get('extId')}"
@@ -168,7 +145,7 @@ def _annotation_batches(papers,request):
                 if len(name)<4 or name.lower() in GENERIC or not re.search('[A-Za-z]',name):continue
                 output.append(dict(identifier=str(tag['uri']),name=name,exact=exact,record_key=key,
                     date=paper['date'],title=paper['title'],doi=paper['doi'],source_id=paper['source_id'],
-                    section='title' if section.startswith('Title ') else 'abstract',
+                    journal=paper.get('journal',''),section='title' if section.startswith('Title ') else 'abstract',
                     snippet=(str(item.get('prefix') or '')[-100:]+exact+str(item.get('postfix') or '')[:140]).strip()))
     return output,len(annotated)
 
@@ -182,7 +159,7 @@ def _regex_mentions(papers):
                 name=match.group().strip()
                 if len(name)<4 or name.upper() in analysis.EXCLUDE:continue
                 output.append(dict(identifier='',name=name,exact=name,record_key=paper['record_key'],
-                    date=paper['date'],title=paper['title'],doi=paper['doi'],source_id=paper['source_id'],section=field,
+                    date=paper['date'],title=paper['title'],doi=paper['doi'],source_id=paper['source_id'],journal=paper.get('journal',''),section=field,
                     snippet=text[max(0,match.start()-100):match.end()+140]))
     return output
 
@@ -210,7 +187,10 @@ def run(path,start,end,max_pages=10,fetch_page=read_page,annotation_request=get_
         regex_mentions=_regex_mentions(papers)
         for mention in regex_mentions:
             if name_key(mention['name']) in named:mention['identifier']=named[name_key(mention['name'])]
-        mentions=annotated_mentions+regex_mentions
+        group_mentions=journals.mentions(papers)
+        for mention in group_mentions:
+            if name_key(mention['name']) in named:mention['identifier']=named[name_key(mention['name'])]
+        mentions=annotated_mentions+regex_mentions+group_mentions
         grouped=defaultdict(lambda:dict(names=defaultdict(int),mentions={}))
         for m in mentions:
             cid=m['identifier'] or 'text:'+re.sub(r'[^a-z0-9]+','-',m['name'].lower()).strip('-')
@@ -221,7 +201,7 @@ def run(path,start,end,max_pages=10,fetch_page=read_page,annotation_request=get_
                 records=list(g['mentions'].values());name=max(g['names'],key=lambda n:(g['names'][n],-len(n),n))
                 data=dict(identifier=cid if not cid.startswith('text:') else None,mentions=records)
                 db.execute('INSERT INTO screening_candidates VALUES (?,?,?,?,?)',
-                    (run_id,analysis.key(VERSION,cid),name,data['identifier'],json.dumps(data,ensure_ascii=False)))
+                    (run_id,analysis.key('journal-candidate',cid),name,data['identifier'],json.dumps(data,ensure_ascii=False)))
             db.execute('''UPDATE screening_runs SET finished_at=?,status=?,baseline_total=?,baseline_fetched=?,
                 recent_total=?,recent_fetched=?,documents=?,annotated=?,error=NULL WHERE id=?''',
                 (now(),'complete' if bf>=bt and rf>=rt else 'partial',bt,bf,rt,rf,
@@ -297,11 +277,12 @@ def _multi_signals(papers,old_keys,recent_keys,baseline,recent,delta,percent):
     components=dict(N=novelty,E=env,H=hazard,X=exposure,R=regulatory,G=gap)
     score=round(.20*novelty+.20*env+.20*hazard+.15*exposure+.15*regulatory+.10*gap,1)
     types=[]
-    if baseline==0 and recent>=3:types.append('new_mention')
+    if baseline==0 and recent>=1:types.append('new_mention')
     elif recent>=5 and delta>=3 and percent is not None and percent>=50:types.append('publication_growth')
     if recent_counts['environment'] and (not baseline_counts['environment'] or recent_counts['environment']>baseline_counts['environment']):types.append('environmental_detection')
     if recent_counts['hazard']:types.append('hazard_signal')
-    if recent_counts['regulatory']:types.append('regulatory_attention')
+    if recent_counts['exposure']>baseline_counts['exposure']:types.append('exposure_signal')
+    if recent_counts['regulatory']>baseline_counts['regulatory']:types.append('regulatory_attention')
     missing=[name for name in GAP_DIMENSIONS if name not in dimensions]
     return dict(priority_score=score,components=components,signal_types=types,
         signal_counts={name:dict(baseline=baseline_counts[name],recent=recent_counts[name]) for name in records},
@@ -322,11 +303,8 @@ def view(path,params):
     saved_ids={value for value in str(params.get('ids','')).split(',')[:100] if 0<len(value)<=200}
     only_id=str(params.get('only_id',''))[:200]
     preview=str(params.get('preview','0'))=='1'
-    catalog_mode=str(params.get('catalog','0'))=='1'
-    catalog_items=[dict(item,catalog_id=f'catalog:{i+1}') for i,item in enumerate(_catalog())] if catalog_mode else []
-    catalog_by_alias=_catalog_index() if catalog_mode else {}
     with connect(path) as db:
-        runs=[dict(r) for r in db.execute('SELECT * FROM screening_runs ORDER BY id DESC')]
+        runs=[dict(r) for r in db.execute('SELECT * FROM screening_runs WHERE query=? ORDER BY id DESC',(QUERY,))]
         exact=next((r for r in runs if r['start_date']==start and r['end_date']==end and r['status'] in ('complete','partial')),None)
         covering=next((r for r in runs if r['start_date']<=start and r['end_date']>=end and r['status'] in ('complete','partial')),None)
         chosen=exact or covering
@@ -339,13 +317,11 @@ def view(path,params):
             for row in candidates:
                 if only_id and row['candidate_id']!=only_id:continue
                 normalized=re.sub(r'[^a-z0-9]','',row['name'].lower())
-                catalog_item=catalog_by_alias.get(normalized) if catalog_mode else None
-                if catalog_mode and not catalog_item:continue
                 if (row['name'].lower() in GENERIC or not re.search(r'[A-Za-z]',row['name']) or
                         (not row['identifier'] and normalized in identified)):continue
                 data=json.loads(row['data']);mentions=[m for m in data['mentions'] if m.get('date') and start<=m['date']<=end]
-                display_name=catalog_item['preferred_name'] if catalog_item else row['name']
-                search_text=' '.join([display_name,*(catalog_item['synonyms'] if catalog_item else [])]).lower()
+                display_name=row['name']
+                search_text=display_name.lower()
                 if (search and search not in search_text and
                         search not in str(row['identifier'] or '').lower() and
                         row['candidate_id'] not in saved_ids):continue
@@ -354,39 +330,24 @@ def view(path,params):
                 total=old|recent
                 if not total:continue
                 delta=len(recent)-len(old);percent=round(delta/len(old)*100,1) if old else None
-                status='early' if not old and len(recent)>=3 else ('growing' if len(recent)>=5 and delta>=3 and percent is not None and percent>=50 else 'other')
+                status='early' if not old and recent else ('growing' if len(recent)>=5 and delta>=3 and percent is not None and percent>=50 else 'other')
                 evidence=[];seen=set()
                 for m in sorted(mentions,key=lambda x:x.get('date') or '',reverse=True):
                     if m['record_key'] not in seen:seen.add(m['record_key']);evidence.append(m)
                 if preview:
-                    evidence=[{k:m.get(k) for k in ('date','section','exact','title','source_id','doi')} for m in evidence[:1]]
-                signal_data=_multi_signals([documents[k] for k in total if k in documents],old,recent,len(old),len(recent),delta,percent)
-                if catalog_item:
-                    components,total_score=_catalog_score(catalog_item,signal_data)
-                    signal_data.update(priority_score=total_score,components=components,score_max=30)
-                rows.append(dict(id=row['candidate_id'],catalog_id=catalog_item['catalog_id'] if catalog_item else None,
-                    name=display_name,identifier=row['identifier'],casrn=catalog_item.get('casrn') if catalog_item else None,
-                    dtxsid=catalog_item.get('dtxsid') if catalog_item else None,
-                    chemical_class=catalog_item.get('chemical_class') if catalog_item else None,
-                    use_source=catalog_item.get('use_source') if catalog_item else None,
-                    relationship=catalog_item.get('relationship') if catalog_item else None,baseline=len(old),
+                    evidence=[{k:m.get(k) for k in ('date','section','exact','title','source_id','doi','journal')} for m in evidence[:1]]
+                # Signal evidence is local to the candidate mention, not an unrelated
+                # toxicology/regulation sentence elsewhere in the same abstract.
+                contexts={}
+                for m in mentions:
+                    k=m['record_key']
+                    contexts.setdefault(k,dict(record_key=k,title='',abstract='',date=m.get('date')))
+                    contexts[k]['abstract']+=' '+m.get('snippet','')
+                signal_data=_multi_signals(list(contexts.values()),old,recent,len(old),len(recent),delta,percent)
+                rows.append(dict(id=row['candidate_id'],name=display_name,identifier=row['identifier'],
+                    candidate_kind='물질군·명칭 후보' if not row['identifier'] else '자료원 주석 후보',score_max=100,baseline=len(old),
                     recent=len(recent),delta=delta,percent=percent,total=len(total),status=status,
                     buckets=_buckets(mentions,start,end,unit),evidence=evidence[:1] if preview else evidence[:8],**signal_data))
-        if catalog_mode and not only_id:
-            best={}
-            for row in rows:
-                old=best.get(row['catalog_id'])
-                if old is None or (row['priority_score'],row['total'])>(old['priority_score'],old['total']):best[row['catalog_id']]=row
-            rows=list(best.values());present=set(best)
-            for item in catalog_items:
-                if item['catalog_id'] in present:continue
-                if search and search not in ' '.join([item['preferred_name'],*item['synonyms'],str(item.get('casrn') or '')]).lower():continue
-                empty=_multi_signals([],set(),set(),0,0,0,None);components,total_score=_catalog_score(item,empty)
-                empty.update(priority_score=total_score,components=components,score_max=30)
-                rows.append(dict(id=item['catalog_id'],catalog_id=item['catalog_id'],name=item['preferred_name'],
-                    identifier=None,casrn=item.get('casrn'),dtxsid=item.get('dtxsid'),chemical_class=item['chemical_class'],
-                    use_source=item['use_source'],relationship=item['relationship'],baseline=0,recent=0,delta=0,percent=None,
-                    total=0,status='catalogue_only',buckets=_buckets([],start,end,unit),evidence=[],**empty))
     rows.sort(key=lambda r:(-r['priority_score'],-r['delta'],-r['recent'],r['name'].lower()))
     visible=rows[:120 if preview else 300]
     visible_ids={row['id'] for row in visible}
@@ -396,17 +357,21 @@ def view(path,params):
         return {k:run[k] for k in ('id','query','start_date','end_date','started_at','finished_at','status',
             'baseline_total','baseline_fetched','recent_total','recent_fetched','annotated','error','rules_version')}
     return dict(run=summary(chosen),latest_run=summary(latest),rows=visible,total_candidates=len(rows),
+        journals=[dict(issn=i,name=n) for i,n in journals.JOURNALS],
+        journal_coverage=[dict(issn=i,name=n,records=sum(p.get('journal_issn')==i for p in documents.values()))
+            for i,n in journals.JOURNALS] if chosen else [],
+        publication_growth=sum(r['status']=='growing' for r in rows),new_mentions=sum(r['baseline']==0 and r['recent']>0 for r in rows),
         growing=sum(bool(r['signal_types']) for r in rows),start=start,end=end,unit=unit,
         exact_scope=bool(exact),rules_version=VERSION,
-        scope='고정 18개 후보 목록을 동의어로 대조하고 기간별 근거 문헌 신호를 집계했습니다.' if catalog_mode else '선택 기간의 환경·신흥오염물질 문헌에서 Europe PMC 화학물질 주석과 명칭 패턴으로 찾은 후보입니다.',
-        limitations=(['고정 18개 후보 목록만 감시','검색식 밖 문헌·주석이 없는 물질은 누락 가능'] if catalog_mode else ['미리 정한 물질 목록을 사용하지 않음','검색식 밖 문헌·주석이 없는 물질은 누락 가능'])+[
-            '문헌 언급 증가는 위해성·사용량·환경농도 증가가 아님','부분 수집이면 동일 크기 표본의 기술적 비교'])
+        scope='지정 저널의 제목·초록에서 물질과 물질군을 자동 추출했습니다. 신규는 수집 범위 내 첫 언급이며 세계 최초 보고를 뜻하지 않습니다.',
+        limitations=['지정 저널과 수집된 제목·초록 범위의 자동 후보','명칭·물질군 추출 오류 가능',
+            '신규는 수집 범위 내 첫 언급','문헌 증가는 위해성 증가가 아님','부분 수집이면 표본 내 비교'])
 
 
 def candidate(path,params):
     cid=str(params.get('id',''))
     if not cid:raise ValueError('후보 ID가 필요합니다.')
-    data=view(path,{**params,'only_id':cid,'preview':'0','ids':cid,'catalog':'1'})
+    data=view(path,{**params,'only_id':cid,'preview':'0','ids':cid})
     if not data['rows']:raise ValueError('선택한 기간에서 후보 근거를 찾을 수 없습니다.')
     return data['rows'][0]
 
@@ -429,7 +394,7 @@ def profiles(path,params):
                 p=dict(p);p['pub_types']=p.get('pub_types') if isinstance(p.get('pub_types'),list) else json.loads(p.get('pub_types') or '[]')
                 p.update(review={},document_flags=[t for t in p['pub_types'] if re.search('review|preprint|retract|correct|errat',t,re.I)],fulltext_available=False,fulltext_license=None)
                 papers.append(p)
-            run_id=-int(row['run_id']);run=dict(id=run_id,query=row['query'],source='Europe PMC 전체 스크리닝',
+            run_id=-int(row['run_id']);run=dict(id=run_id,query=row['query']+f" AND FIRST_PDATE:[{row['start_date']} TO {row['end_date']}]",source='Europe PMC 저널 스크리닝',
                 start_year=int(row['start_date'][:4]),end_year=int(row['end_date'][:4]),started_at=row['started_at'],
                 finished_at=row['finished_at'],status=row['status'],source_total=(row['baseline_total'] or 0)+(row['recent_total'] or 0),
                 fetched=(row['baseline_fetched'] or 0)+(row['recent_fetched'] or 0),unique_count=len(papers),
@@ -451,6 +416,6 @@ def profiles(path,params):
 
 def meta(path):
     with connect(path) as db:
-        runs=[dict(r) for r in db.execute('SELECT id,start_date,end_date,status,started_at,finished_at,error,baseline_total,baseline_fetched,recent_total,recent_fetched,annotated FROM screening_runs ORDER BY id DESC LIMIT 20')]
+        runs=[dict(r) for r in db.execute('SELECT id,start_date,end_date,status,started_at,finished_at,error,baseline_total,baseline_fetched,recent_total,recent_fetched,annotated FROM screening_runs WHERE query=? ORDER BY id DESC LIMIT 20',(QUERY,))]
     complete=[r for r in runs if r['status'] in ('complete','partial')]
-    return dict(runs=runs,latest_end=max((r['end_date'] for r in complete),default=dt.date.today().isoformat()),rules_version=VERSION)
+    return dict(journals=[dict(issn=i,name=n) for i,n in journals.JOURNALS],runs=runs,latest_end=max((r['end_date'] for r in complete),default=dt.date.today().isoformat()),rules_version=VERSION)

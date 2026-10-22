@@ -31,7 +31,7 @@ def connect(path):
     return db
 
 
-def init_db(path, kind='live'):
+def init_db(path, kind='live', *, seed_examples=False):
     with connect(path) as db:
         db.executescript('''
         CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -55,7 +55,7 @@ def init_db(path, kind='live'):
             raise ValueError('실자료와 데모 DB를 혼합할 수 없습니다. 별도 DB 경로를 사용하세요.')
         db.execute('INSERT OR IGNORE INTO metadata VALUES (?, ?)', ('dataset_kind', kind))
         screening_only=db.execute("SELECT value FROM metadata WHERE key='screening_only'").fetchone()
-        if not screening_only or screening_only['value']!='true':
+        if (kind=='demo' or seed_examples) and (not screening_only or screening_only['value']!='true'):
             for cid, name, terms in WATCHLIST:
                 db.execute('INSERT OR IGNORE INTO chemicals VALUES (?, ?, ?)', (cid, name, json.dumps(terms)))
     from .research import init_research

@@ -20,7 +20,7 @@ def page(records):return dict(hitCount=len(records),resultList={'result':records
 
 class RadarTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory();self.path=str(Path(self.temp.name)/'test.sqlite');init_db(self.path)
+        self.temp=tempfile.TemporaryDirectory();self.path=str(Path(self.temp.name)/'test.sqlite');init_db(self.path,seed_examples=True)
         self.params={'start':'2024-01-01','end':'2024-12-31'}
 
     def tearDown(self):self.temp.cleanup()

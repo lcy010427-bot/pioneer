@@ -19,7 +19,7 @@ def response(records):
 class ResearchTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.path=str(Path(self.temp.name)/'live.sqlite');init_db(self.path)
+        self.path=str(Path(self.temp.name)/'live.sqlite');init_db(self.path,seed_examples=True)
         self.records=[item('1',abstract='Detected in water samples. No endocrine effect was observed. Zebrafish larvae were exposed.'),
                       item('2',abstract='We quantified 1,3-diphenylguanidine in road dust.')]
         collect(self.path,'6ppd-q',2023,2025,fetch_page=lambda _:response(self.records))
@@ -31,7 +31,7 @@ class ResearchTests(unittest.TestCase):
         return research.workspace(self.path)
 
     def test_migration_idempotent_preserves_papers(self):
-        research.init_research(self.path);init_db(self.path)
+        research.init_research(self.path);init_db(self.path,seed_examples=True)
         self.assertEqual(len(view(self.path)['chemicals'][0]['papers']),2)
 
     def test_extraction_exact_offsets_and_no_probability(self):
