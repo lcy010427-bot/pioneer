@@ -7,6 +7,7 @@ import re
 import threading
 import urllib.parse
 from collections import defaultdict
+from pathlib import Path
 
 from . import analysis
 from .core import connect, normalize, now, read_page
@@ -55,6 +56,34 @@ GAP_DIMENSIONS = {
     '성차': re.compile(r'\bsex[- ]specific|sex differences?|male and female',re.I),
     '혼합물': re.compile(r'\bmixture|combined exposure|co-exposure',re.I),
 }
+CATALOG_PATH=Path(__file__).resolve().parent.parent/'public-data/candidates.json'
+
+
+def _catalog():
+    return json.loads(CATALOG_PATH.read_text(encoding='utf-8'))
+
+
+def _normalized(value):
+    return re.sub(r'[^a-z0-9]','',str(value).lower())
+
+
+def _catalog_index():
+    result={}
+    for i,item in enumerate(_catalog()):
+        item=dict(item,catalog_id=f'catalog:{i+1}')
+        for alias in [item['preferred_name'],*item['synonyms']]:result[_normalized(alias)]=item
+    return result
+
+
+def _catalog_score(item,signals):
+    counts={k:v['recent'] for k,v in signals['signal_counts'].items()}
+    base=item['baseline'];novel_count=counts['novel_context']
+    n=min(5,base['novelty']+(1 if novel_count>=2 else 0))
+    e=min(5,base['environment']+(1 if counts['environment']>=2 else 0))
+    h=min(5,base['hazard']+(1 if counts['hazard']>=2 else 0))
+    x=min(5,base['exposure']+(1 if counts['exposure']>=2 else 0))
+    r=base['regulatory'];g=base['gap'] if max(e,x)>=2 else 0
+    return dict(N=n,E=e,H=h,X=x,R=r,G=g),n+e+h+x+r+g
 
 
 def init_screening(path):
@@ -291,6 +320,11 @@ def view(path,params):
     if unit not in ('week','month','quarter'):raise ValueError('그래프 단위가 유효하지 않습니다.')
     search=str(params.get('search','')).strip().lower()[:180]
     saved_ids={value for value in str(params.get('ids','')).split(',')[:100] if 0<len(value)<=200}
+    only_id=str(params.get('only_id',''))[:200]
+    preview=str(params.get('preview','0'))=='1'
+    catalog_mode=str(params.get('catalog','0'))=='1'
+    catalog_items=[dict(item,catalog_id=f'catalog:{i+1}') for i,item in enumerate(_catalog())] if catalog_mode else []
+    catalog_by_alias=_catalog_index() if catalog_mode else {}
     with connect(path) as db:
         runs=[dict(r) for r in db.execute('SELECT * FROM screening_runs ORDER BY id DESC')]
         exact=next((r for r in runs if r['start_date']==start and r['end_date']==end and r['status'] in ('complete','partial')),None)
@@ -303,11 +337,16 @@ def view(path,params):
             documents={p['record_key']:p for p in json.loads(chosen['documents'] or '[]')}
             identified={re.sub(r'[^a-z0-9]','',r['name'].lower()) for r in candidates if r['identifier']}
             for row in candidates:
+                if only_id and row['candidate_id']!=only_id:continue
                 normalized=re.sub(r'[^a-z0-9]','',row['name'].lower())
+                catalog_item=catalog_by_alias.get(normalized) if catalog_mode else None
+                if catalog_mode and not catalog_item:continue
                 if (row['name'].lower() in GENERIC or not re.search(r'[A-Za-z]',row['name']) or
                         (not row['identifier'] and normalized in identified)):continue
                 data=json.loads(row['data']);mentions=[m for m in data['mentions'] if m.get('date') and start<=m['date']<=end]
-                if (search and search not in row['name'].lower() and
+                display_name=catalog_item['preferred_name'] if catalog_item else row['name']
+                search_text=' '.join([display_name,*(catalog_item['synonyms'] if catalog_item else [])]).lower()
+                if (search and search not in search_text and
                         search not in str(row['identifier'] or '').lower() and
                         row['candidate_id'] not in saved_ids):continue
                 old={m['record_key'] for m in mentions if start<=m['date']<=old_end.isoformat()}
@@ -319,12 +358,37 @@ def view(path,params):
                 evidence=[];seen=set()
                 for m in sorted(mentions,key=lambda x:x.get('date') or '',reverse=True):
                     if m['record_key'] not in seen:seen.add(m['record_key']);evidence.append(m)
+                if preview:
+                    evidence=[{k:m.get(k) for k in ('date','section','exact','title','source_id','doi')} for m in evidence[:1]]
                 signal_data=_multi_signals([documents[k] for k in total if k in documents],old,recent,len(old),len(recent),delta,percent)
-                rows.append(dict(id=row['candidate_id'],name=row['name'],identifier=row['identifier'],baseline=len(old),
+                if catalog_item:
+                    components,total_score=_catalog_score(catalog_item,signal_data)
+                    signal_data.update(priority_score=total_score,components=components,score_max=30)
+                rows.append(dict(id=row['candidate_id'],catalog_id=catalog_item['catalog_id'] if catalog_item else None,
+                    name=display_name,identifier=row['identifier'],casrn=catalog_item.get('casrn') if catalog_item else None,
+                    dtxsid=catalog_item.get('dtxsid') if catalog_item else None,
+                    chemical_class=catalog_item.get('chemical_class') if catalog_item else None,
+                    use_source=catalog_item.get('use_source') if catalog_item else None,
+                    relationship=catalog_item.get('relationship') if catalog_item else None,baseline=len(old),
                     recent=len(recent),delta=delta,percent=percent,total=len(total),status=status,
-                    buckets=_buckets(mentions,start,end,unit),evidence=evidence[:8],**signal_data))
+                    buckets=_buckets(mentions,start,end,unit),evidence=evidence[:1] if preview else evidence[:8],**signal_data))
+        if catalog_mode and not only_id:
+            best={}
+            for row in rows:
+                old=best.get(row['catalog_id'])
+                if old is None or (row['priority_score'],row['total'])>(old['priority_score'],old['total']):best[row['catalog_id']]=row
+            rows=list(best.values());present=set(best)
+            for item in catalog_items:
+                if item['catalog_id'] in present:continue
+                if search and search not in ' '.join([item['preferred_name'],*item['synonyms'],str(item.get('casrn') or '')]).lower():continue
+                empty=_multi_signals([],set(),set(),0,0,0,None);components,total_score=_catalog_score(item,empty)
+                empty.update(priority_score=total_score,components=components,score_max=30)
+                rows.append(dict(id=item['catalog_id'],catalog_id=item['catalog_id'],name=item['preferred_name'],
+                    identifier=None,casrn=item.get('casrn'),dtxsid=item.get('dtxsid'),chemical_class=item['chemical_class'],
+                    use_source=item['use_source'],relationship=item['relationship'],baseline=0,recent=0,delta=0,percent=None,
+                    total=0,status='catalogue_only',buckets=_buckets([],start,end,unit),evidence=[],**empty))
     rows.sort(key=lambda r:(-r['priority_score'],-r['delta'],-r['recent'],r['name'].lower()))
-    visible=rows[:300]
+    visible=rows[:120 if preview else 300]
     visible_ids={row['id'] for row in visible}
     visible.extend(row for row in rows if row['id'] in saved_ids and row['id'] not in visible_ids)
     def summary(run):
@@ -334,9 +398,17 @@ def view(path,params):
     return dict(run=summary(chosen),latest_run=summary(latest),rows=visible,total_candidates=len(rows),
         growing=sum(bool(r['signal_types']) for r in rows),start=start,end=end,unit=unit,
         exact_scope=bool(exact),rules_version=VERSION,
-        scope='선택 기간의 환경·신흥오염물질 문헌에서 Europe PMC 화학물질 주석과 명칭 패턴으로 찾은 후보입니다.',
-        limitations=['미리 정한 물질 목록을 사용하지 않음','검색식 밖 문헌·주석이 없는 물질은 누락 가능',
+        scope='고정 18개 후보 목록을 동의어로 대조하고 기간별 근거 문헌 신호를 집계했습니다.' if catalog_mode else '선택 기간의 환경·신흥오염물질 문헌에서 Europe PMC 화학물질 주석과 명칭 패턴으로 찾은 후보입니다.',
+        limitations=(['고정 18개 후보 목록만 감시','검색식 밖 문헌·주석이 없는 물질은 누락 가능'] if catalog_mode else ['미리 정한 물질 목록을 사용하지 않음','검색식 밖 문헌·주석이 없는 물질은 누락 가능'])+[
             '문헌 언급 증가는 위해성·사용량·환경농도 증가가 아님','부분 수집이면 동일 크기 표본의 기술적 비교'])
+
+
+def candidate(path,params):
+    cid=str(params.get('id',''))
+    if not cid:raise ValueError('후보 ID가 필요합니다.')
+    data=view(path,{**params,'only_id':cid,'preview':'0','ids':cid,'catalog':'1'})
+    if not data['rows']:raise ValueError('선택한 기간에서 후보 근거를 찾을 수 없습니다.')
+    return data['rows'][0]
 
 
 def profiles(path,params):

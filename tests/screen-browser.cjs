@@ -10,7 +10,7 @@ const {chromium}=require('playwright');const assert=require('node:assert/strict'
  await first.locator('[data-shelf]').click();assert.equal(await page.locator('.shelf-chip').count(),1);
  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('pioneer-analysis-shelf-v1')).length),1);
  await first.locator('[data-radar-open]').first().click();assert.equal(await page.locator('#radar-dialog').evaluate(x=>x.open),true);
- assert.ok((await page.locator('#radar-dialog-body').innerText()).includes('근거와 출처'));
+ await page.waitForFunction(()=>document.querySelector('#radar-dialog-body')?.textContent.includes('근거와 출처'));
  assert.ok(await page.locator('#radar-dialog-body a[href*="europepmc.org"]').count());
  await page.locator('#radar-analyze-detail').click();await page.waitForSelector('.watch .shelf-origin');
  assert.equal(await page.locator('#detail-view').isVisible(),true);assert.equal(await page.locator('[data-tab]').count(),6);

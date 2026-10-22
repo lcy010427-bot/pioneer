@@ -79,6 +79,7 @@ def handler_for(db_path, port, public_origin=None, read_only=False, admin_origin
                     return self.send(200,report)
                 if path=='/api/screen/meta':return self.send(200,screening.meta(db_path))
                 if path=='/api/screen/profiles':return self.send(200,screening.profiles(db_path,{k:v[0] for k,v in params.items()}))
+                if path=='/api/screen/candidate':return self.send(200,screening.candidate(db_path,{k:v[0] for k,v in params.items()}))
                 if path=='/api/screen':return self.send(200,screening.view(db_path,{k:v[0] for k,v in params.items()}))
                 if path=='/api/radar/reports':return self.send(200,radar.saved_reports(db_path))
                 if path=='/api/radar/articles':return self.send(200,radar.articles(db_path,{k:v[0] for k,v in params.items()}))
