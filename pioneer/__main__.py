@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .core import collect, connect, init_db, seed_demo, view
-from . import research, radar, screening
+from . import research, radar, screening, chemical_search
 
 WEB = Path(__file__).resolve().parent.parent / 'web'
 
@@ -67,6 +67,9 @@ def handler_for(db_path, port, public_origin=None, read_only=False, admin_origin
                     return self.send(200,{'status':'ok'})
                 if path=='/api/config':return self.send(200,{'read_only':read_only,'admin_url':admin_origin if read_only else None})
                 params=parse_qs(urlparse(self.path).query)
+                if path=='/api/chemical-search':
+                    research.require_live(db_path)
+                    return self.send(200,chemical_search.search(params.get('name',[''])[0],params.get('start',[''])[0],params.get('end',[''])[0]))
                 if read_only and (path in ('/api/export','/api/export.csv','/api/history','/api/radar/reports','/api/radar/jobs') or params.get('report_id')):
                     return self.send(403,{'error':'운영 기록은 운영자 사이트에서만 조회할 수 있습니다.'})
                 if path in ('/api/radar','/api/radar.csv'):

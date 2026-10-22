@@ -303,6 +303,8 @@ def view(path,params):
     saved_ids={value for value in str(params.get('ids','')).split(',')[:100] if 0<len(value)<=200}
     only_id=str(params.get('only_id',''))[:200]
     preview=str(params.get('preview','0'))=='1'
+    sort=str(params.get('sort','score'))
+    if sort not in ('score','delta','percent','recent','name'):raise ValueError('정렬 기준이 유효하지 않습니다.')
     with connect(path) as db:
         runs=[dict(r) for r in db.execute('SELECT * FROM screening_runs WHERE query=? ORDER BY id DESC',(QUERY,))]
         exact=next((r for r in runs if r['start_date']==start and r['end_date']==end and r['status'] in ('complete','partial')),None)
@@ -348,7 +350,11 @@ def view(path,params):
                     candidate_kind='물질군·명칭 후보' if not row['identifier'] else '자료원 주석 후보',score_max=100,baseline=len(old),
                     recent=len(recent),delta=delta,percent=percent,total=len(total),status=status,
                     buckets=_buckets(mentions,start,end,unit),evidence=evidence[:1] if preview else evidence[:8],**signal_data))
-    rows.sort(key=lambda r:(-r['priority_score'],-r['delta'],-r['recent'],r['name'].lower()))
+    orders=dict(score=lambda r:(-r['priority_score'],-r['delta'],r['name'].lower()),
+        delta=lambda r:(-r['delta'],-r['priority_score'],r['name'].lower()),
+        percent=lambda r:(r['percent'] is None,-(r['percent'] or 0),-r['delta'],r['name'].lower()),
+        recent=lambda r:(-r['recent'],-r['priority_score'],r['name'].lower()),name=lambda r:r['name'].casefold())
+    rows.sort(key=orders[sort])
     visible=rows[:120 if preview else 300]
     visible_ids={row['id'] for row in visible}
     visible.extend(row for row in rows if row['id'] in saved_ids and row['id'] not in visible_ids)

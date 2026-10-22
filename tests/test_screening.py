@@ -119,5 +119,22 @@ class ScreeningTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             screening.candidate(self.path,dict(id='missing',start='2025-01-01',end='2025-12-31'))
 
+    def test_sort_applies_to_all_candidates_before_preview_limit(self):
+        from pioneer.core import connect,now
+        with connect(self.path) as db:
+            rid=db.execute("INSERT INTO screening_runs(query,start_date,end_date,started_at,status,rules_version,documents) VALUES (?,?,?,?,'partial',?,'[]')",
+                (screening.QUERY,'2025-01-01','2025-12-31',now(),screening.VERSION)).lastrowid
+            for i in range(131):
+                count=12 if i==130 else 1
+                mentions=[dict(record_key=f'MED:{i}-{j}',date='2025-11-01',title='Fixture',exact='fixture',source_id=f'MED:{i}-{j}',
+                    section='abstract',doi='',snippet='' if i==130 else 'First detection in water. Developmental toxicity, exposure and regulatory attention.') for j in range(count)]
+                db.execute('INSERT INTO screening_candidates VALUES (?,?,?,?,?)',(rid,str(i),'fixturechemical'+str(i),None,json.dumps(dict(mentions=mentions))))
+        params=dict(start='2025-01-01',end='2025-12-31',preview='1')
+        self.assertNotIn('130',[r['id'] for r in screening.view(self.path,params)['rows']])
+        self.assertEqual(screening.view(self.path,{**params,'sort':'delta'})['rows'][0]['id'],'130')
+        percentages=screening.view(self.path,{**params,'sort':'percent'})['rows']
+        self.assertTrue(all(r['percent'] is None for r in percentages))
+        with self.assertRaises(ValueError):screening.view(self.path,{**params,'sort':'invalid'})
+
 
 if __name__=='__main__':unittest.main()
