@@ -72,7 +72,8 @@ def main():
                     if request(public,'/healthz')[0]==200:break
                 except (OSError,urllib.error.URLError):pass
                 time.sleep(.3)
-            assert request(public,'/')[0]==200
+            root_status,root_body,_=request(public,'/')
+            assert root_status==200,(root_status,root_body[:300])
             assert request(admin,'/')[0]==401
             assert request(admin,'/',auth=True)[0]==200
             checks.append('anonymous public and authenticated administrator TLS routing')

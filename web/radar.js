@@ -1,53 +1,87 @@
 'use strict';
 let mainView=new URLSearchParams(location.search).get('view')==='detail'?'detail':'radar';
 let radarData=null,radarRequest=0,radarFilter='all',radarSearch='',radarTimer=null,radarReady=false;
+let radarRange=null,radarKind='1y',radarBoot=null;
 const SHELF='pioneer-analysis-shelf-v1';
-const signalNames={new_mention:'새롭게 언급',publication_growth:'문헌 증가',environmental_detection:'환경 검출 신호',hazard_signal:'독성 신호',regulatory_attention:'규제 관심'};
-const componentNames={N:'신규성',E:'환경 근거',H:'유해성 신호',X:'노출 가능성',R:'규제 관심',G:'지식공백'};
+const signalNames={new_mention:'새롭게 언급',publication_growth:'문헌 증가',environmental_detection:'환경 검출',hazard_signal:'독성 신호',regulatory_attention:'규제 관심'};
+
 function shelf(){try{const x=JSON.parse(localStorage.getItem(SHELF)||'[]');return Array.isArray(x)?x:[]}catch(_){return []}}
 function setShelf(x){localStorage.setItem(SHELF,JSON.stringify(x))}
 function onShelf(id){return shelf().some(x=>x.id===id)}
-function switchMain(view){mainView=view;$('hot-radar').hidden=view!=='radar';$('detail-view').hidden=view!=='detail';document.querySelectorAll('[data-main-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mainView===view)));if(view==='detail'&&state){window.pioneerDetailLoaded=true;load(true).catch(e=>{$('mode').textContent=e.message;});}else if(view==='radar'&&state)renderHotRadar();}
-document.querySelectorAll('[data-main-view]').forEach(b=>b.addEventListener('click',()=>switchMain(b.dataset.mainView)));
 function sourceLink(m){const [src,...id]=m.source_id.split(':');return `https://europepmc.org/article/${encodeURIComponent(src)}/${encodeURIComponent(id.join(':'))}`}
 function spark(row){const p=row.buckets,max=Math.max(1,...p.map(x=>x.count)),n=Math.max(1,p.length-1);return `<svg viewBox="0 0 160 52" role="img" aria-label="${esc(row.name)} 시간 추이">${p.slice(1).map((x,i)=>`<path class="mini-line" d="M${8+i/n*144},${43-p[i].count/max*34} L${8+(i+1)/n*144},${43-x.count/max*34}"/>`).join('')}${p.map((x,i)=>`<circle class="mini-dot" cx="${8+i/n*144}" cy="${43-x.count/max*34}" r="2.5"><title>${x.start}~${x.end}: ${x.count}건</title></circle>`).join('')}</svg>`}
-function storeRow(row){const list=shelf(),i=list.findIndex(x=>x.id===row.id);if(i>=0)list.splice(i,1);else list.push({id:row.id,name:row.name,identifier:row.identifier||'',saved_at:new Date().toISOString()});setShelf(list);paintRadar();}
-async function analyzeRow(row){if(!onShelf(row.id))storeRow(row);if($('radar-dialog').open)$('radar-dialog').close();await load(true);selected='screen:'+row.id;pointFilter=null;limit=15;render();switchMain('detail')}
-function renderHotRadar(){
- $('mode').textContent='실자료 모드 — 전체 환경·신흥오염물질 문헌에서 화학물질 후보를 추출하고 다중 신호를 분리해 표시합니다. 자동 신호는 사람의 과학적 검토 전 후보입니다.';
- if(!radarReady){radarReady=true;$('hot-radar').innerHTML=`
- <section class="panel radar-top"><div class="panel-heading"><div><p class="eyebrow">OPEN DISCOVERY</p><h2>Hot Radar</h2><p class="muted">물질을 미리 정하지 않고, 새 언급·환경 검출·독성·노출·규제·지식공백 신호를 함께 살펴봅니다.</p></div><div class="radar-actions"><button id="radar-refresh" hidden>현재 기간 다시 수집</button></div></div>
- <div class="signal-questions"><article><b>1</b><span>최근 새롭게 언급되기 시작했나?</span></article><article><b>2</b><span>환경 시료 검출 신호가 새로 나타났나?</span></article><article><b>3</b><span>독성 신호와 후속 연구 질문이 함께 있나?</span></article><article><b>4</b><span>규제 관심이 시작됐으나 근거가 부족한가?</span></article></div>
- <div class="radar-period-row"><div class="period-presets" role="group" aria-label="조회 기간">${[['5y','5년간'],['1y','1년간'],['1q','1분기 간']].map(([id,label])=>`<button data-radar-period="${id}">${label}</button>`).join('')}</div><form id="radar-period-form"><label>시작일<input id="radar-start" type="date" required></label><label>종료일<input id="radar-end" type="date" required></label><label>선그래프 단위<select id="radar-unit"><option value="quarter">분기별</option><option value="month">월별</option><option value="week">주별</option></select></label><button class="quiet">기간 적용</button></form></div><p id="radar-message" class="muted" role="status"></p><div id="radar-summary" class="radar-summary"></div></section>
- <section class="source-layers"><article class="source-ready"><b>A · 학술 문헌</b><span>Europe PMC 수집·화학물질 주석</span></article><article><b>B · 환경 모니터링</b><span>문헌 내 검출·매질 신호 · NORMAN 직접 연계 예정</span></article><article><b>C · 독성·노출</b><span>문헌 키워드 신호 · CompTox 직접 연계 예정</span></article><article><b>D · 규제·정책</b><span>문헌 키워드 신호 · 공식 목록 직접 연계 예정</span></article></section>
- <section class="panel shelf-panel"><div class="panel-heading"><div><h3>내 보관함</h3><p class="muted">Hot Radar에서 고른 물질을 ‘물질 분석’ 탭의 기존 분석 대상으로 넘깁니다.</p></div><button id="shelf-open-analysis" class="quiet">물질 분석 열기</button></div><div id="shelf-list"></div></section>
- <section class="panel radar-results"><div class="radar-search-row"><label class="radar-name-label">물질 검색<input id="radar-search" type="search" placeholder="물질명 또는 ChEBI ID"></label><label>신호 유형<select id="radar-signal-filter"><option value="all">전체 다중신호</option>${Object.entries(signalNames).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label></div><div id="radar-results-body">불러오는 중입니다.</div></section>
- <details class="panel"><summary>점수와 해석 방법</summary><p><code>0.20N + 0.20E + 0.20H + 0.15X + 0.15R + 0.10G</code></p><p class="muted">현재 버전은 Europe PMC 제목·초록에서 얻은 다중 키워드 신호입니다. NORMAN·CompTox·공식 규제 목록이 아직 직접 연결되지 않은 차원은 문헌 신호로만 표시합니다. G는 환경 근거 또는 노출 가능성이 30점 이상일 때만 반영합니다. 점수는 위해성·규제 우선순위가 아니라 후속 검토 후보를 정렬하는 잠정값입니다.</p></details>`;
- bindRadar();
- }
- syncRadarPeriod();paintShelf();fetchRadar();
+
+function switchMain(view){
+ mainView=view;$('hot-radar').hidden=view!=='radar';$('detail-view').hidden=view!=='detail';
+ document.querySelectorAll('[data-main-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mainView===view)));
+ if(view==='detail'&&state){window.pioneerDetailLoaded=true;load(true).catch(e=>{$('mode').textContent=e.message})}
+ else if(view==='radar')renderHotRadar();
 }
-function syncRadarPeriod(){if(!periodRange)return;$('radar-start').value=periodRange.start;$('radar-end').value=periodRange.end;$('radar-unit').value=periodRange.unit;document.querySelectorAll('[data-radar-period]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.radarPeriod===periodKind)));}
+document.querySelectorAll('[data-main-view]').forEach(b=>b.addEventListener('click',()=>switchMain(b.dataset.mainView)));
+
+function renderHotRadar(){
+ $('mode').textContent='전체 문헌에서 새롭게 포착된 화학물질 후보와 그 근거 문헌을 표시합니다.';
+ if(!radarReady){
+  radarReady=true;
+  $('hot-radar').innerHTML=`
+  <section class="panel radar-top"><div class="panel-heading"><div><p class="eyebrow">OPEN DISCOVERY</p><h2>Hot Radar</h2><p class="muted">미리 정한 물질 목록 없이 문헌을 수집해 후보를 찾습니다. 후보를 누르면 실제 근거 문장과 원문 출처를 확인할 수 있습니다.</p></div><div class="radar-actions"><button id="radar-refresh" hidden>이 기간 새로 수집</button></div></div>
+  <div class="radar-period-row"><div class="period-presets" role="group" aria-label="조회 기간">${[['5y','5년간'],['1y','1년간'],['1q','1분기 간']].map(([id,label])=>`<button data-radar-period="${id}">${label}</button>`).join('')}</div><form id="radar-period-form"><label>시작일<input id="radar-start" type="date" required></label><label>종료일<input id="radar-end" type="date" required></label><label>선그래프 단위<select id="radar-unit"><option value="quarter">분기별</option><option value="month">월별</option><option value="week">주별</option></select></label><button class="quiet">기간 적용</button></form></div><p id="radar-message" class="muted" role="status"></p><div id="radar-summary" class="radar-summary"></div></section>
+  <section class="panel shelf-panel"><div class="panel-heading"><div><h3>내 보관함</h3><p class="muted">Hot Radar에서 고른 물질만 ‘물질 분석’ 탭의 분석 대상이 됩니다.</p></div><button id="shelf-open-analysis" class="quiet">물질 분석 열기</button></div><div id="shelf-list"></div></section>
+  <section class="panel radar-results"><div class="radar-search-row"><label class="radar-name-label">물질 검색<input id="radar-search" type="search" placeholder="물질명 또는 ChEBI ID"></label><label>신호 유형<select id="radar-signal-filter"><option value="all">전체 신호</option>${Object.entries(signalNames).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label></div><div id="radar-results-body">불러오는 중입니다.</div></section>`;
+  bindRadar();
+ }
+ paintShelf();bootRadar();
+}
+
+async function bootRadar(){
+ if(!radarBoot)radarBoot=(async()=>{const [meta]=await Promise.all([fetch('/api/screen/meta').then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.error||'수집 범위를 불러오지 못했습니다.');return d}),loadSiteConfig()]);radarRange=time.preset(radarKind,meta.latest_end);syncRadarPeriod();await fetchRadar()})().catch(e=>{$('radar-results-body').innerHTML=`<p class="error">${esc(e.message)}</p>`});
+ return radarBoot;
+}
+function setRadarPeriod(start,end,unit,kind){try{time.validate(start,end,unit);radarRange={start,end,unit};radarKind=kind;syncRadarPeriod();fetchRadar()}catch(e){$('radar-message').textContent=e.message}}
+function syncRadarPeriod(){if(!radarRange)return;$('radar-start').value=radarRange.start;$('radar-end').value=radarRange.end;$('radar-unit').value=radarRange.unit;document.querySelectorAll('[data-radar-period]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.radarPeriod===radarKind)))}
 function bindRadar(){
- document.querySelectorAll('[data-radar-period]').forEach(b=>b.onclick=()=>{const p=time.preset(b.dataset.radarPeriod,$('radar-end').value||periodRange.end);applyPeriod(p.start,p.end,p.unit,b.dataset.radarPeriod)});
- $('radar-period-form').onsubmit=e=>{e.preventDefault();applyPeriod($('radar-start').value,$('radar-end').value,$('radar-unit').value,'custom')};
- $('radar-search').oninput=e=>{radarSearch=e.target.value;clearTimeout(radarTimer);radarTimer=setTimeout(fetchRadar,220)};
+ document.querySelectorAll('[data-radar-period]').forEach(b=>b.onclick=()=>{const p=time.preset(b.dataset.radarPeriod,$('radar-end').value||radarRange.end);setRadarPeriod(p.start,p.end,p.unit,b.dataset.radarPeriod)});
+ $('radar-period-form').onsubmit=e=>{e.preventDefault();setRadarPeriod($('radar-start').value,$('radar-end').value,$('radar-unit').value,'custom')};
+ $('radar-search').oninput=e=>{radarSearch=e.target.value;clearTimeout(radarTimer);radarTimer=setTimeout(fetchRadar,250)};
  $('radar-signal-filter').onchange=e=>{radarFilter=e.target.value;paintRadar()};
  $('shelf-open-analysis').onclick=()=>switchMain('detail');
  $('radar-refresh').onclick=refreshScreen;
  $('radar-dialog-close').onclick=()=>$('radar-dialog').close();
 }
-async function fetchRadar(){if(!periodRange)return;const req=++radarRequest;$('radar-results-body').textContent='전체 문헌에서 화학물질과 다중 신호를 불러오는 중입니다.';try{const p=new URLSearchParams({start:periodRange.start,end:periodRange.end,unit:periodRange.unit,search:radarSearch,ids:shelf().map(x=>x.id).join(',')});const r=await fetch('/api/screen?'+p),data=await r.json();if(!r.ok)throw Error(data.error);if(req!==radarRequest)return;radarData=data;paintRadar()}catch(e){if(req===radarRequest)$('radar-results-body').innerHTML=`<p class="error">${esc(e.message)}</p>`}}
-function paintShelf(){if(!$('shelf-list'))return;const list=shelf();$('shelf-open-analysis').disabled=!list.length;$('shelf-list').innerHTML=list.length?list.map(x=>`<span class="shelf-chip">${esc(x.name)}<button data-shelf-remove="${esc(x.id)}" aria-label="${esc(x.name)} 보관함에서 제거">×</button></span>`).join(''):'<p class="empty">아직 저장한 물질이 없습니다. 아래 후보의 ‘보관함 추가’를 누르세요.</p>';$('shelf-list').querySelectorAll('[data-shelf-remove]').forEach(b=>b.onclick=()=>{setShelf(shelf().filter(x=>x.id!==b.dataset.shelfRemove));paintShelf();paintRadar()})}
-function paintRadar(){if(!radarData)return;paintShelf();const d=radarData,run=d.run,rows=d.rows.filter(r=>radarFilter==='all'||r.signal_types.includes(radarFilter));$('radar-summary').innerHTML=`<span><strong>${run?run.baseline_fetched+run.recent_fetched:0}</strong> 확인 문헌</span><span><strong>${d.total_candidates}</strong> 추출 후보</span><span><strong>${d.growing}</strong> 다중신호 후보</span><span class="radar-date">${d.start} ~ ${d.end}</span>`;$('radar-message').textContent=run?`전반 ${run.baseline_fetched}/${run.baseline_total??'—'} · 후반 ${run.recent_fetched}/${run.recent_total??'—'} · ${run.status==='complete'?'전체 수집':'부분 표본'}`:'이 기간의 스크리닝 자료가 없습니다.';
+
+async function fetchRadar(){
+ if(!radarRange)return;const req=++radarRequest;$('radar-results-body').textContent='후보물질과 근거 문헌을 불러오는 중입니다.';
+ try{const p=new URLSearchParams({start:radarRange.start,end:radarRange.end,unit:radarRange.unit,search:radarSearch,ids:shelf().map(x=>x.id).join(',')});const r=await fetch('/api/screen?'+p),data=await r.json();if(!r.ok)throw Error(data.error);if(req!==radarRequest)return;radarData=data;paintRadar()}
+ catch(e){if(req===radarRequest)$('radar-results-body').innerHTML=`<p class="error">${esc(e.message)}</p>`}
+}
+function paintShelf(){
+ if(!$('shelf-list'))return;const list=shelf();$('shelf-open-analysis').disabled=!list.length;
+ $('shelf-list').innerHTML=list.length?list.map(x=>`<span class="shelf-chip">${esc(x.name)}<button data-shelf-remove="${esc(x.id)}" aria-label="${esc(x.name)} 보관함에서 제거">×</button></span>`).join(''):'<p class="empty">아직 저장한 물질이 없습니다. 아래 후보에서 ‘추가’를 누르세요.</p>';
+ $('shelf-list').querySelectorAll('[data-shelf-remove]').forEach(b=>b.onclick=()=>{setShelf(shelf().filter(x=>x.id!==b.dataset.shelfRemove));paintShelf();paintRadar()});
+}
+function storeRow(row){const list=shelf(),i=list.findIndex(x=>x.id===row.id);if(i>=0)list.splice(i,1);else list.push({id:row.id,name:row.name,identifier:row.identifier||'',saved_at:new Date().toISOString()});setShelf(list);paintRadar()}
+async function analyzeRow(row){if(!onShelf(row.id))storeRow(row);if($('radar-dialog').open)$('radar-dialog').close();await load(true);selected='screen:'+row.id;pointFilter=null;limit=15;render();switchMain('detail')}
+
+function paintRadar(){
+ if(!radarData)return;paintShelf();const d=radarData,run=d.run;
+ const rows=d.rows.filter(r=>r.signal_types.length&&(radarFilter==='all'||r.signal_types.includes(radarFilter)));
+ $('radar-summary').innerHTML=`<span><strong>${run?run.baseline_fetched+run.recent_fetched:0}</strong> 확인 문헌</span><span><strong>${d.total_candidates}</strong> 추출 후보</span><span><strong>${d.growing}</strong> 근거 신호 후보</span><span class="radar-date">${d.start} ~ ${d.end}</span>`;
+ $('radar-message').textContent=run?`Europe PMC · ${run.status==='complete'?'전체 수집':'부분 표본'} · 전반 ${run.baseline_fetched}건 / 후반 ${run.recent_fetched}건`:'이 기간의 수집 결과가 없습니다.';
  $('radar-refresh').hidden=siteConfig.read_only;
- $('radar-results-body').innerHTML=run?`<p class="radar-scope">${esc(d.scope)} 점수는 문헌 내 다중신호의 잠정 정렬이며 위해성 순위가 아닙니다.</p><div class="table-scroll"><table class="radar-table discovery-table"><thead><tr><th>화학물질</th><th>관찰 신호</th><th>잠정 점수</th><th>N/E/H/X/R/G</th><th>시간 추이</th><th>내 보관함</th><th>근거</th></tr></thead><tbody>${rows.map(r=>`<tr><td><button class="radar-name" data-radar-open="${r.id}">${esc(r.name)}</button><small>${r.identifier?esc(r.identifier.split('/').pop()):'명칭 패턴 후보'} · ${r.total}개 고유 문헌</small></td><td><div class="signal-stack">${r.signal_types.map(s=>`<span class="signal-badge signal-${s}">${esc(signalNames[s])}</span>`).join('')||'<span class="signal-badge">다중신호 조건 미충족</span>'}</div></td><td><strong class="priority-score">${r.priority_score}</strong><small>/ 100 · 문헌 신호</small></td><td><div class="component-mini">${Object.entries(r.components).map(([k,v])=>`<span><b>${k}</b>${v}</span>`).join('')}</div></td><td><button class="spark-button" data-radar-open="${r.id}">${spark(r)}</button></td><td><button class="shelf-button ${onShelf(r.id)?'saved':''}" data-shelf="${r.id}">${onShelf(r.id)?'✓ 보관 중':'＋ 보관함 추가'}</button></td><td><button class="quiet" data-radar-open="${r.id}">근거 보기</button></td></tr>`).join('')||'<tr><td colspan="7">이 조건의 후보가 없습니다.</td></tr>'}</tbody></table></div>`:'<p class="empty">이 기간의 결과가 없습니다. 운영자 화면에서 새 기간을 수집할 수 있습니다.</p>';
+ $('radar-results-body').innerHTML=run?`<div class="table-scroll"><table class="radar-table discovery-table"><thead><tr><th>후보물질</th><th>포착된 신호</th><th>근거 문헌</th><th>추이</th><th>보관함</th></tr></thead><tbody>${rows.map(r=>{const e=r.evidence[0];return `<tr><td><button class="radar-name" data-radar-open="${r.id}">${esc(r.name)}</button><small>${r.identifier?esc(r.identifier.split('/').pop()):'식별자 미확인'} · ${r.total}개 문헌 · 점수 ${r.priority_score}</small></td><td><div class="signal-stack">${r.signal_types.map(s=>`<span class="signal-badge signal-${s}">${esc(signalNames[s])}</span>`).join('')}</div></td><td>${e?`<button class="evidence-preview" data-radar-open="${r.id}"><b>${esc(e.title)}</b><small>${esc(e.date||'날짜 미상')} · ${esc(e.exact||r.name)}</small></button>`:'<span class="muted">근거 문헌 확인 필요</span>'}</td><td><button class="spark-button" data-radar-open="${r.id}">${spark(r)}</button></td><td><button class="shelf-button ${onShelf(r.id)?'saved':''}" data-shelf="${r.id}">${onShelf(r.id)?'✓ 보관 중':'＋ 추가'}</button></td></tr>`}).join('')||'<tr><td colspan="5">이 기간에 근거 신호가 있는 후보가 없습니다.</td></tr>'}</tbody></table></div>`:'<p class="empty">이 기간의 저장 결과가 없습니다. 운영자 화면에서 원하는 기간을 지정해 수집하세요.</p>';
  $('radar-results-body').querySelectorAll('[data-shelf]').forEach(b=>b.onclick=()=>storeRow(d.rows.find(r=>r.id===b.dataset.shelf)));
  $('radar-results-body').querySelectorAll('[data-radar-open]').forEach(b=>b.onclick=()=>openRadar(d.rows.find(r=>r.id===b.dataset.radarOpen)));
 }
-function openRadar(r){const component=`<div class="score-grid">${Object.entries(r.components).map(([k,v])=>`<article><span>${k} · ${esc(componentNames[k])}</span><strong>${v}</strong><meter min="0" max="100" value="${v}"></meter></article>`).join('')}</div>`;const counts=Object.entries(r.signal_counts).map(([k,v])=>`<li>${esc(({environment:'환경 검출·매질',hazard:'독성',exposure:'노출·사용',regulatory:'규제',novel_context:'신규 사용·변환체',gap:'명시적 공백'})[k])}: 전반 ${v.baseline} → 후반 ${v.recent}개 문헌</li>`).join('');
- $('radar-dialog-title').textContent=r.name;$('radar-dialog-body').innerHTML=`<div class="radar-detail-head">${spark(r)}<div><p class="eyebrow">잠정 Emerging Signal Score</p><strong class="detail-score">${r.priority_score}</strong><p>전반 ${r.baseline} → 후반 ${r.recent}개 문헌 · ${r.delta>0?'+':''}${r.delta}건</p></div></div>${component}<h3>관찰된 신호</h3><div class="signal-stack">${r.signal_types.map(s=>`<span class="signal-badge signal-${s}">${esc(signalNames[s])}</span>`).join('')||'다중신호 조건 미충족'}</div><ul>${counts}</ul><h3>지식공백 검토 질문</h3>${r.gap_questions.length?`<p>${r.gap_questions.map(esc).join(' · ')} 키워드가 현재 범위에서 확인되지 않았습니다.</p><p class="muted">키워드 미확인은 연구 부재의 증명이 아닙니다. 원문과 추가 자료원에서 확인할 질문입니다. G 점수는 ${r.gap_gate?'환경·노출 gate가 열려 반영 가능':'환경·노출 gate가 닫혀 0점'}입니다.</p>`:'<p class="muted">현재 규칙으로 만든 공백 질문이 없습니다.</p>'}<h3>출처 층과 근거 수준</h3><ul>${Object.values(r.source_coverage).map(x=>`<li>${esc(x)}</li>`).join('')}</ul><p class="muted">${esc(r.evidence_level)}</p><div class="radar-actions"><button id="radar-shelf-detail">${onShelf(r.id)?'보관함에서 빼기':'내 보관함에 추가'}</button><button id="radar-analyze-detail" class="quiet">저장하고 물질 분석</button></div><h3>최근 근거 문헌</h3>${r.evidence.map(m=>`<article class="radar-paper"><p class="muted">${esc(m.date||'날짜 미상')} · ${esc(m.section)}에서 “${esc(m.exact)}”</p><h4>${esc(m.title)}</h4><blockquote>${esc(m.snippet)}</blockquote><a href="${sourceLink(m)}" target="_blank" rel="noopener noreferrer">Europe PMC ↗</a>${m.doi?` · <a href="https://doi.org/${encodeURIComponent(m.doi)}" target="_blank" rel="noopener noreferrer">DOI ↗</a>`:''}</article>`).join('')}`;
- $('radar-shelf-detail').onclick=()=>{storeRow(r);$('radar-shelf-detail').textContent=onShelf(r.id)?'보관함에서 빼기':'내 보관함에 추가'};$('radar-analyze-detail').onclick=()=>analyzeRow(r);$('radar-dialog').showModal();
+
+function openRadar(r){
+ $('radar-dialog-title').textContent=r.name;
+ $('radar-dialog-body').innerHTML=`<div class="radar-detail-head">${spark(r)}<div><p class="eyebrow">SCREENING CANDIDATE</p><strong class="detail-score">${r.priority_score}</strong><p>${r.identifier?esc(r.identifier):'식별자 미확인'} · 전반 ${r.baseline} → 후반 ${r.recent}개 문헌</p></div></div><h3>포착된 신호</h3><div class="signal-stack">${r.signal_types.map(s=>`<span class="signal-badge signal-${s}">${esc(signalNames[s])}</span>`).join('')}</div><div class="radar-actions"><button id="radar-shelf-detail">${onShelf(r.id)?'보관함에서 빼기':'내 보관함에 추가'}</button><button id="radar-analyze-detail" class="quiet">저장하고 물질 분석</button></div><h3>근거와 출처</h3>${r.evidence.map(m=>`<article class="radar-paper"><p class="muted">${esc(m.date||'날짜 미상')} · ${esc(m.section)}에서 “${esc(m.exact)}”</p><h4>${esc(m.title)}</h4><blockquote>${esc(m.snippet)}</blockquote><a href="${sourceLink(m)}" target="_blank" rel="noopener noreferrer">Europe PMC 원문 레코드 ↗</a>${m.doi?` · <a href="https://doi.org/${encodeURIComponent(m.doi)}" target="_blank" rel="noopener noreferrer">DOI ↗</a>`:''}</article>`).join('')||'<p class="empty">표시할 근거 문헌이 없습니다.</p>'}`;
+ $('radar-shelf-detail').onclick=()=>{storeRow(r);$('radar-shelf-detail').textContent=onShelf(r.id)?'보관함에서 빼기':'내 보관함에 추가'};
+ $('radar-analyze-detail').onclick=()=>analyzeRow(r);$('radar-dialog').showModal();
 }
-async function refreshScreen(){if(siteConfig.read_only)return;$('radar-refresh').disabled=true;$('radar-message').textContent='문헌과 화학물질 주석을 수집하고 있습니다.';try{const r=await fetch('/api/screen',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start:periodRange.start,end:periodRange.end,max_pages:10})}),d=await r.json();if(!r.ok)throw Error(d.error);$('radar-message').textContent='수집을 시작했습니다. 잠시 후 결과를 다시 불러옵니다.';setTimeout(fetchRadar,3000)}catch(e){$('radar-message').textContent=e.message}finally{$('radar-refresh').disabled=false}}
+async function refreshScreen(){
+ if(siteConfig.read_only)return;$('radar-refresh').disabled=true;$('radar-message').textContent='선택 기간의 문헌에서 후보와 근거를 수집하고 있습니다.';
+ try{const r=await fetch('/api/screen',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start:radarRange.start,end:radarRange.end,max_pages:10})}),d=await r.json();if(!r.ok)throw Error(d.error);$('radar-message').textContent='수집을 시작했습니다. 완료되면 후보 목록을 갱신합니다.';setTimeout(fetchRadar,3000)}
+ catch(e){$('radar-message').textContent=e.message}finally{$('radar-refresh').disabled=false}
+}
 switchMain(mainView);

@@ -13,10 +13,14 @@ from .core import connect, normalize, now, read_page
 from .research import get_json, require_live
 
 
-VERSION = 'literature-screen-v1'
+VERSION = 'literature-screen-v2'
 ANNOTATIONS = 'https://www.ebi.ac.uk/europepmc/annotations_api/annotationsByArticleIds'
-QUERY = ('(TITLE_ABS:"emerging contaminants" OR TITLE_ABS:"environmental pollutants" '
-         'OR TITLE_ABS:"contaminants of emerging concern")')
+QUERY = ('((TITLE_ABS:"emerging contaminant" OR TITLE_ABS:"emerging contaminants" '
+         'OR TITLE_ABS:"contaminant of emerging concern" OR TITLE_ABS:"contaminants of emerging concern" '
+         'OR TITLE_ABS:"replacement chemical" OR TITLE_ABS:"transformation product" '
+         'OR TITLE_ABS:"suspect screening" OR TITLE_ABS:"non-target screening") '
+         'AND (TITLE_ABS:environment* OR TITLE_ABS:water OR TITLE_ABS:wastewater '
+         'OR TITLE_ABS:sediment OR TITLE_ABS:soil OR TITLE_ABS:dust OR TITLE_ABS:biota))')
 GENERIC = {
     'water','oxygen','nitrogen','carbon dioxide','sodium','chloride','sulfate','amino acid',
     'protein','lipid','glucose','atp','dna','rna','hydrogen','calcium','potassium','iron',
@@ -24,6 +28,10 @@ GENERIC = {
     'metal','carbon','phosphorus','sulfur','mineral','oxide','nitride','hydrocarbon',
     'alkali metal cation','fluoroalkane','chemical element','organic compound','inorganic compound',
     'peptide','methyl','fatty acid','polyunsaturated fatty acid',
+    'environmental contaminant','emerging contaminant','pollutant','nanostructure','hydroxyl',
+    'salt','electron','carbonate mineral','amino oligosaccharide','palmitoyl amino acid',
+    'selenite esters','polycyclic hydrocarbon','phthalate','phthalate ester','paraben','quinone',
+    'sulfonamide','fluoroquinolone antibiotic','bisphenol','polyethylene polymer','polyester polymer',
 }
 SIGNAL_PATTERNS = {
     'environment': re.compile(r'\b(?:detect(?:ed|ion|able)?|occurrence|quantif(?:ied|ication)|measured concentration|'
@@ -296,7 +304,8 @@ def view(path,params):
             identified={re.sub(r'[^a-z0-9]','',r['name'].lower()) for r in candidates if r['identifier']}
             for row in candidates:
                 normalized=re.sub(r'[^a-z0-9]','',row['name'].lower())
-                if row['name'].lower() in GENERIC or (not row['identifier'] and normalized in identified):continue
+                if (row['name'].lower() in GENERIC or not re.search(r'[A-Za-z]',row['name']) or
+                        (not row['identifier'] and normalized in identified)):continue
                 data=json.loads(row['data']);mentions=[m for m in data['mentions'] if m.get('date') and start<=m['date']<=end]
                 if (search and search not in row['name'].lower() and
                         search not in str(row['identifier'] or '').lower() and
